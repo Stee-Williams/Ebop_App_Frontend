@@ -1,16 +1,17 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeft,
-  UserCog,
-  RefreshCw,
-  CheckCircle2,
   AlertCircle,
+  ArrowLeft,
+  CheckCircle2,
+  RefreshCw,
   Search,
-  User,
   Shield,
+  User,
+  UserCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -20,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent } from "@/components/ui/card";
+import { PageHeader, PageShell } from "@/components/layout/PageShell";
 import InstitutionLogo from "@/components/InstitutionLogo";
 import PCLLogo from "@/components/PCLLogo";
 import {
@@ -31,9 +32,17 @@ import {
   updateUserRole,
   type UserProfile,
 } from "@/config/app";
+import { cn } from "@/lib/utils";
 
-const MiseAJourProfil = () => {
-  const navigate = useNavigate();
+type MiseAJourProfilProps = {
+  embedded?: boolean;
+};
+
+const ProfileForm = ({
+  className,
+}: {
+  className?: string;
+}) => {
   const [matricule, setMatricule] = useState("");
   const [user, setUser] = useState<UserProfile | null>(null);
   const [nouveauRole, setNouveauRole] = useState("");
@@ -44,7 +53,6 @@ const MiseAJourProfil = () => {
 
   useEffect(() => {
     const trimmed = matricule.trim();
-
     if (!trimmed) {
       setUser(null);
       return;
@@ -53,7 +61,6 @@ const MiseAJourProfil = () => {
     const timeout = setTimeout(async () => {
       setIsSearching(true);
       setMessage({ text: "", type: "" });
-
       try {
         const data = await getUserByMatricule(trimmed);
         setUser(data.user ?? null);
@@ -88,7 +95,6 @@ const MiseAJourProfil = () => {
     try {
       const data = await updateUserRole(matricule.trim(), roleId);
       const updatedUser = data.user ?? user;
-
       setUser(updatedUser);
       setMessage({
         text: `Le rôle de ${updatedUser.nom} a été mis à jour avec succès.`,
@@ -124,228 +130,236 @@ const MiseAJourProfil = () => {
         : "Saisissez un matricule";
 
   const userFieldClass = user
-    ? "border-institution-green/40 bg-institution-green/5 text-institution-green"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : isSearching
-      ? "border-institution-gold/40 bg-institution-gold/10 text-amber-700"
+      ? "border-amber-200 bg-amber-50 text-amber-700"
       : matricule.trim()
-        ? "border-destructive/30 bg-destructive/5 text-destructive"
-        : "border-border bg-muted/30 text-muted-foreground";
+        ? "border-red-200 bg-red-50 text-red-600"
+        : "border-gray-200 bg-gray-50 text-muted-foreground";
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* Panneau gauche — dégradé institutionnel */}
-      <div className="hidden lg:flex lg:w-[36%] xl:w-[34%] relative flex-col items-center justify-center p-10 xl:p-14 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary via-institution-blue to-accent" />
-        <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_30%_20%,white_0%,transparent_50%)]" />
-        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-institution-gold via-white/60 to-institution-green" />
+    <Card
+      className={cn(
+        "overflow-hidden border-0 bg-white/90 shadow-lg backdrop-blur-sm",
+        className
+      )}
+    >
+      <div className="h-1.5 bg-gradient-to-r from-primary via-accent to-emerald-500" />
+      <CardContent className="p-6 lg:p-8">
+        <div className="mb-8 text-center">
+          <PCLLogo className="mx-auto mb-3" />
+          <h2 className="text-lg font-bold text-primary">
+            Mise à jour des profils
+          </h2>
+          <p className="mt-1 text-sm text-accent">
+            Gestion des Crédits Administratifs
+          </p>
+        </div>
 
-        <div className="relative z-10 max-w-xs xl:max-w-sm text-center text-white">
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 mb-8 inline-block">
-            <InstitutionLogo className="w-20 h-20 xl:w-24 xl:h-24 mx-auto" />
+        <div className="mb-6 rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50/80 via-teal-50/50 to-indigo-50/80 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-indigo-100 p-2">
+              <Search className="h-4 w-4 text-indigo-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-primary">Information</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Recherchez un utilisateur par matricule et modifiez son rôle
+                d&apos;intervention au sein du système EBOP.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <Label
+              htmlFor="matricule"
+              className="text-xs font-semibold uppercase tracking-wide text-primary/80"
+            >
+              Matricule
+            </Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="matricule"
+                value={matricule}
+                onChange={(e) => setMatricule(e.target.value)}
+                placeholder="Ex: MAT001"
+                className="h-11 border-gray-200 bg-white pl-10 focus-visible:ring-accent"
+              />
+            </div>
           </div>
 
-          <h1 className="text-xl xl:text-2xl font-bold mb-4 leading-tight drop-shadow-sm">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary/80">
+                <User className="h-3.5 w-3.5 text-accent" />
+                Utilisateur
+              </Label>
+              <div
+                className={cn(
+                  "flex h-11 items-center rounded-lg border px-3 text-sm font-medium transition-colors",
+                  userFieldClass
+                )}
+              >
+                {userDisplay}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary/80">
+                <Shield className="h-3.5 w-3.5 text-accent" />
+                Rôle actuel
+              </Label>
+              <div
+                className={cn(
+                  "flex h-11 items-center rounded-lg border px-3 text-sm font-medium",
+                  user
+                    ? "border-primary/20 bg-primary/5 text-primary"
+                    : "border-gray-200 bg-gray-50 text-muted-foreground"
+                )}
+              >
+                {user?.role ? getRoleLabel(user.role) : "—"}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label
+              htmlFor="nouveauRole"
+              className="text-xs font-semibold uppercase tracking-wide text-primary/80"
+            >
+              Nouveau rôle
+            </Label>
+            <Select
+              value={nouveauRole}
+              onValueChange={setNouveauRole}
+              disabled={!user || isUpdating}
+            >
+              <SelectTrigger
+                id="nouveauRole"
+                className="h-11 border-gray-200 bg-white focus:ring-accent"
+              >
+                <SelectValue placeholder="Sélectionner un rôle" />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLE_OPTIONS.map((role) => (
+                  <SelectItem key={role.value} value={role.value}>
+                    {role.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {message.text && (
+            <div
+              className={cn(
+                "flex items-center gap-3 rounded-xl border p-4 text-sm",
+                isSuccess
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-red-200 bg-red-50 text-red-600"
+              )}
+            >
+              {isSuccess ? (
+                <CheckCircle2 className="h-5 w-5 shrink-0" />
+              ) : (
+                <AlertCircle className="h-5 w-5 shrink-0" />
+              )}
+              <span className="font-medium">{message.text}</span>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3 pt-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleReset}
+              className="h-11 flex-1 border-primary/20 text-primary hover:bg-primary/5"
+            >
+              Effacer
+            </Button>
+            <Button
+              type="button"
+              variant="institution"
+              onClick={handleValider}
+              disabled={!user || !nouveauRole || isUpdating}
+              className="h-11 flex-[2] gap-2 shadow-md"
+            >
+              <RefreshCw
+                className={cn("h-4 w-4", isUpdating && "animate-spin")}
+              />
+              {isUpdating ? "Mise à jour..." : "Mettre à jour"}
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+const MiseAJourProfil = ({ embedded = false }: MiseAJourProfilProps) => {
+  const navigate = useNavigate();
+
+  if (embedded) {
+    return (
+      <PageShell className="max-w-3xl">
+        <PageHeader
+          icon={<UserCog className="h-6 w-6 text-white" />}
+          title="Mise à jour des profils"
+          description="Recherchez un utilisateur par matricule et modifiez son rôle d'intervention."
+          badge="Module Divers"
+        />
+        <ProfileForm />
+      </PageShell>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col lg:flex-row">
+      <div className="relative hidden flex-col items-center justify-center overflow-hidden p-10 lg:flex lg:w-[36%] xl:w-[34%] xl:p-14">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary via-[hsl(215,55%,28%)] to-accent" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,white_0%,transparent_50%)] opacity-10" />
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-white/60 to-emerald-500" />
+
+        <div className="relative z-10 max-w-xs text-center text-white xl:max-w-sm">
+          <div className="mb-8 inline-block rounded-2xl bg-white/10 p-5 backdrop-blur-sm">
+            <InstitutionLogo className="mx-auto h-20 w-20 xl:h-24 xl:w-24" />
+          </div>
+          <h1 className="mb-4 text-xl font-bold leading-tight drop-shadow-sm xl:text-2xl">
             Direction Générale de la
             <br />
             Comptabilité Publique et du Trésor
           </h1>
-
-          <p className="text-white/80 text-sm xl:text-base leading-relaxed mb-6">
+          <p className="mb-6 text-sm leading-relaxed text-white/80 xl:text-base">
             Recherchez un utilisateur par matricule et modifiez son rôle
             d&apos;intervention au sein du système EBOP.
           </p>
-
-          <div className="flex items-center justify-center gap-3">
-            <div className="w-10 h-1 rounded-full bg-institution-gold" />
-            <div className="w-4 h-4 rounded-full bg-white/30" />
-            <div className="w-10 h-1 rounded-full bg-institution-green" />
-          </div>
         </div>
       </div>
 
-      {/* Panneau droit — formulaire */}
-      <div className="flex-1 flex flex-col bg-gradient-to-br from-slate-50 via-background to-accent/5 min-h-screen">
-        {/* Barre supérieure */}
-        <header className="bg-primary text-primary-foreground px-4 sm:px-8 py-4 shadow-md">
-          <div className="max-w-3xl mx-auto flex items-center justify-between">
+      <div className="flex flex-1 flex-col bg-gradient-to-br from-slate-50 via-background to-accent/5">
+        <header className="bg-primary px-4 py-4 text-primary-foreground shadow-md sm:px-8">
+          <div className="mx-auto flex max-w-3xl items-center justify-between">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => navigate("/acceuil")}
-              className="gap-2 text-primary-foreground hover:bg-white/15 hover:text-white border border-white/20"
+              className="gap-2 border border-white/20 text-primary-foreground hover:bg-white/15 hover:text-white"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="h-4 w-4" />
               Retour
             </Button>
-            <div className="flex items-center gap-2 font-semibold text-sm sm:text-base">
-              <UserCog className="w-5 h-5 text-accent-foreground/90" />
+            <div className="flex items-center gap-2 text-sm font-semibold sm:text-base">
+              <UserCog className="h-5 w-5" />
               <span>Gestion des Profils EBOP</span>
             </div>
           </div>
         </header>
 
-        <main className="flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-10 pt-24 lg:pt-10">
-          <Card className="w-full max-w-2xl border-0 shadow-card-hover rounded-2xl overflow-hidden animate-slide-in-right">
-            {/* Bandeau coloré en tête de carte */}
-            <div className="h-2 bg-gradient-to-r from-primary via-accent to-institution-green" />
-
-            <CardContent className="p-6 sm:p-8 lg:p-10">
-              <div className="text-center mb-8">
-                <PCLLogo className="mb-3 mx-auto" />
-                <h2 className="text-lg font-bold text-primary">
-                  Mise à jour des profils
-                </h2>
-                <p className="text-accent text-sm mt-1">
-                  Gestion des Crédits Administratifs
-                </p>
-              </div>
-
-              <div className="rounded-xl p-4 mb-7 bg-gradient-to-r from-primary/5 via-accent/10 to-primary/5 border border-accent/20">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-accent/15 shrink-0">
-                    <Search className="w-4 h-4 text-accent" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-sm text-primary">
-                      Information
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Recherche d&apos;un utilisateur par matricule et
-                      modification de son rôle.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-5">
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="matricule"
-                    className="font-semibold text-primary/80 text-xs uppercase tracking-wide"
-                  >
-                    Matricule
-                  </Label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      id="matricule"
-                      value={matricule}
-                      onChange={(e) => setMatricule(e.target.value)}
-                      placeholder="Ex: 00000"
-                      className="h-11 pl-10 border-accent/30 focus-visible:ring-accent focus-visible:border-accent bg-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="font-semibold text-primary/80 text-xs uppercase tracking-wide flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5 text-accent" />
-                      Utilisateur
-                    </Label>
-                    <div
-                      className={`h-11 px-3 flex items-center rounded-lg border text-sm font-medium transition-colors ${userFieldClass}`}
-                    >
-                      {userDisplay}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="font-semibold text-primary/80 text-xs uppercase tracking-wide flex items-center gap-1.5">
-                      <Shield className="w-3.5 h-3.5 text-accent" />
-                      Rôle actuel
-                    </Label>
-                    <div
-                      className={`h-11 px-3 flex items-center rounded-lg border text-sm font-medium transition-colors ${
-                        user
-                          ? "border-primary/30 bg-primary/5 text-primary"
-                          : "border-border bg-muted/30 text-muted-foreground"
-                      }`}
-                    >
-                      {user?.role ? getRoleLabel(user.role) : "-"}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="nouveauRole"
-                    className="font-semibold text-primary/80 text-xs uppercase tracking-wide"
-                  >
-                    Nouveau rôle
-                  </Label>
-                  <Select
-                    value={nouveauRole}
-                    onValueChange={setNouveauRole}
-                    disabled={!user || isUpdating}
-                  >
-                    <SelectTrigger
-                      id="nouveauRole"
-                      className="h-11 border-accent/30 focus:ring-accent bg-white"
-                    >
-                      <SelectValue placeholder="-- Sélectionner --" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ROLE_OPTIONS.map((role) => (
-                        <SelectItem key={role.value} value={role.value}>
-                          {role.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {message.text && (
-                  <div
-                    className={`flex items-center gap-3 p-4 rounded-xl text-sm ${
-                      isSuccess
-                        ? "bg-institution-green/10 text-institution-green border border-institution-green/30"
-                        : "bg-destructive/10 text-destructive border border-destructive/30"
-                    }`}
-                  >
-                    {isSuccess ? (
-                      <CheckCircle2 className="w-5 h-5 shrink-0" />
-                    ) : (
-                      <AlertCircle className="w-5 h-5 shrink-0" />
-                    )}
-                    <span className="font-medium">{message.text}</span>
-                  </div>
-                )}
-
-                <div className="flex flex-col sm:flex-row gap-3 pt-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleReset}
-                    className="flex-1 h-11 border-primary/20 text-primary hover:bg-primary/5"
-                  >
-                    Effacer
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="institution"
-                    onClick={handleValider}
-                    disabled={!user || !nouveauRole || isUpdating}
-                    className="flex-[2] h-11 gap-2 shadow-md"
-                  >
-                    <RefreshCw
-                      className={`w-4 h-4 ${isUpdating ? "animate-spin" : ""}`}
-                    />
-                    {isUpdating ? "Mise à jour..." : "Mettre à jour"}
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <main className="flex flex-1 items-center justify-center p-4 sm:p-6 lg:p-10">
+          <ProfileForm className="w-full max-w-2xl animate-slide-in-right" />
         </main>
-      </div>
-
-      {/* En-tête mobile */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-20 bg-gradient-to-r from-primary to-accent text-white p-4 shadow-lg">
-        <div className="flex items-center justify-center gap-3">
-          <InstitutionLogo className="w-9 h-9" />
-          <span className="text-sm font-bold tracking-wide">DGCPT — EBOP</span>
-        </div>
       </div>
     </div>
   );

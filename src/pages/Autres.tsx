@@ -1,178 +1,531 @@
-import React, { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Search, Eye, Printer, Calendar, LogOut } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  BarChart3,
+  Building2,
+  Calendar,
+  Eye,
+  MapPin,
+  Printer,
+  Search,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { PageHeader, PageShell } from "@/components/layout/PageShell";
+import {
+  getAdministrations,
+  getEngagements,
+  getProvinces,
+  getUnitesOperationnelles,
+  type AdministrationItem,
+  type EngagementItem,
+  type ProvinceItem,
+  type UniteOperationnelleItem,
+} from "@/config/app";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
-const C = {
-  blue: "#1d4ed8", blueDark: "#1e3a8a", green: "#059669", greenLight: "#d1fae5",
-  slate: "#0f172a", muted: "#64748b", faint: "#94a3b8", faintLight: "#e2e8f0",
-  border: "#cbd5e1", surface: "#ffffff", red: "#dc2626", redLight: "#fee2e2", white: "#ffffff",
-  bg: "linear-gradient(135deg, #1e3a8a 0%, #1e3a8a 55%, #1e3a8a 100%)",
+const ITEMS_PER_PAGE = 8;
+
+const statusClass: Record<string, string> = {
+  Visé: "bg-emerald-100 text-emerald-800 hover:bg-emerald-100",
+  Validé: "bg-emerald-100 text-emerald-800 hover:bg-emerald-100",
+  "En attente": "bg-amber-100 text-amber-800 hover:bg-amber-100",
+  Rejeté: "bg-red-100 text-red-800 hover:bg-red-100",
 };
 
-const S = {
-  card: { background: C.white, borderRadius: "20px", boxShadow: "0 4px 15px rgba(0,0,0,0.04)" },
-  inputContainer: { display: "flex", alignItems: "center", gap: "10px", border: `1px solid ${C.border}`, borderRadius: "14px", padding: "0 14px", height: "50px", background: "#fff" },
-  inputStyle: { border: "none", outline: "none", width: "100%", fontSize: "14px", background: "transparent" },
-  td: { padding: "18px", fontSize: "14px", color: "#334155" },
-  iconBtn: { width: "38px", height: "38px", borderRadius: "10px", border: "none", background: "#eff6ff", color: C.blue, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" },
-  exportBtn: { display: "flex", alignItems: "center", gap: "10px", border: "none", background: C.blue, color: "#fff", padding: "12px 18px", borderRadius: "12px", fontWeight: "600", cursor: "pointer" },
-  overlay: {
-    position: "fixed" as const,
-    inset: 0,
-    background: "rgba(0, 0, 0, 0.5)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1000,
-  } as const,
-  modal: {
-    background: "#fff",
-    borderRadius: "16px",
-    padding: "30px",
-    width: "90%",
-    maxWidth: "600px",
-    boxShadow: "0 10px 40px rgba(0, 0, 0, 0.2)",
-  } as const,
-  detail: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "12px",
-    padding: "16px",
-    background: C.faintLight,
-    borderRadius: "12px",
-    border: `1px solid ${C.faint}`,
-  } as const,
-};
+const fmt = (n: number) =>
+  new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "XAF",
+    maximumFractionDigits: 0,
+  }).format(n);
 
-const statusMap = {
-  "Validé": { color: C.green, background: C.greenLight },
-  "En attente": { color: C.faint, background: C.faintLight },
-  "Rejeté": { color: C.red, background: C.redLight },
-};
-
-const engagementsData = [
-  
-];
-
-const ITEMS_PER_PAGE = 5;
-
-const Detail = ({ label, value }) => (
-  <div style={S.detail}>
-    <div style={{ color: "#64748b", fontSize: "13px", marginBottom: "6px" }}>{label}</div>
-    <div style={{ color: C.slate, fontWeight: "600" }}>{value}</div>
-  </div>
-);
-
-const Button = ({ children, onClick, color = "default" }) => {
-  const styles = { primary: { background: C.blue, color: C.white }, danger: { background: C.red, color: C.white }, default: { background: C.white, color: C.slate, border: `1.5px solid ${C.border}` } }[color];
-  return <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 12, border: color === "default" ? `1.5px solid ${C.border}` : "none", ...styles, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{children}</button>;
+const fmtDate = (d: string) => {
+  const [y, m, day] = d.split("-");
+  return day && m && y ? `${day}/${m}/${y}` : d;
 };
 
 export default function AutresEngagements() {
-  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [engagements, setEngagements] = useState<EngagementItem[]>([]);
+  const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
+  const [administrations, setAdministrations] = useState<AdministrationItem[]>(
+    []
+  );
+  const [unites, setUnites] = useState<UniteOperationnelleItem[]>([]);
+
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState(null);
+  const [filtreProvince, setFiltreProvince] = useState("tous");
+  const [filtreAdministration, setFiltreAdministration] = useState("tous");
+  const [filtreUo, setFiltreUo] = useState("tous");
+  const [filtreDate, setFiltreDate] = useState("");
+  const [filtreStatut, setFiltreStatut] = useState("tous");
+  const [selected, setSelected] = useState<EngagementItem | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  
-  const filteredData = useMemo(() => engagementsData.filter(item => Object.values(item).join(" ").toLowerCase().includes(search.toLowerCase())), [search]);
-  
-  const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [engagementsData, provincesData, administrationsData, unitesData] =
+          await Promise.all([
+            getEngagements(),
+            getProvinces(),
+            getAdministrations(),
+            getUnitesOperationnelles(),
+          ]);
+        setEngagements(engagementsData);
+        setProvinces(provincesData);
+        setAdministrations(administrationsData);
+        setUnites(unitesData);
+      } catch {
+        toast({
+          title: "Erreur",
+          description: "Impossible de charger les engagements.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [toast]);
+
+  const administrationOptions = useMemo(
+    () =>
+      filtreProvince === "tous"
+        ? administrations
+        : administrations.filter(
+            (a) => String(a.province_id) === filtreProvince
+          ),
+    [administrations, filtreProvince]
+  );
+
+  const uoOptions = useMemo(() => {
+    if (filtreAdministration !== "tous") {
+      return unites.filter(
+        (u) => String(u.administration_id) === filtreAdministration
+      );
+    }
+    if (filtreProvince !== "tous") {
+      const adminIds = new Set(
+        administrationOptions.map((a) => String(a.id))
+      );
+      return unites.filter((u) =>
+        adminIds.has(String(u.administration_id))
+      );
+    }
+    return unites;
+  }, [unites, filtreAdministration, filtreProvince, administrationOptions]);
+
+  const statuts = useMemo(
+    () =>
+      [...new Set(engagements.map((e) => e.statut).filter(Boolean))].sort(),
+    [engagements]
+  );
+
+  const filteredData = useMemo(
+    () =>
+      engagements.filter((item) => {
+        const haystack = [
+          item.numero,
+          item.objet,
+          item.administration_nom,
+          item.province_nom,
+          item.unite_operationnelle_nom,
+          item.demandeur,
+          item.fournisseur,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        const matchSearch =
+          !search.trim() || haystack.includes(search.toLowerCase());
+        const matchProvince =
+          filtreProvince === "tous" ||
+          String(item.province_id) === filtreProvince;
+        const matchAdministration =
+          filtreAdministration === "tous" ||
+          String(item.administration_id) === filtreAdministration;
+        const matchUo =
+          filtreUo === "tous" ||
+          String(item.unite_operationnelle_id) === filtreUo;
+        const matchDate = !filtreDate || item.date === filtreDate;
+        const matchStatut =
+          filtreStatut === "tous" || item.statut === filtreStatut;
+
+        return (
+          matchSearch &&
+          matchProvince &&
+          matchAdministration &&
+          matchUo &&
+          matchDate &&
+          matchStatut
+        );
+      }),
+    [
+      engagements,
+      search,
+      filtreProvince,
+      filtreAdministration,
+      filtreUo,
+      filtreDate,
+      filtreStatut,
+    ]
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filtreProvince, filtreAdministration, filtreUo, filtreDate, filtreStatut]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredData.length / ITEMS_PER_PAGE)
+  );
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const paginatedData = filteredData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const paginatedData = filteredData.slice(
+    startIndex,
+    startIndex + ITEMS_PER_PAGE
+  );
+
+  const handleProvinceChange = (value: string) => {
+    setFiltreProvince(value);
+    setFiltreAdministration("tous");
+    setFiltreUo("tous");
+  };
+
+  const handleAdministrationChange = (value: string) => {
+    setFiltreAdministration(value);
+    setFiltreUo("tous");
+  };
+
+  const resetFilters = () => {
+    setSearch("");
+    setFiltreProvince("tous");
+    setFiltreAdministration("tous");
+    setFiltreUo("tous");
+    setFiltreDate("");
+    setFiltreStatut("tous");
+  };
+
+  const hasActiveFilters =
+    search.trim() !== "" ||
+    filtreProvince !== "tous" ||
+    filtreAdministration !== "tous" ||
+    filtreUo !== "tous" ||
+    filtreDate !== "" ||
+    filtreStatut !== "tous";
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, padding: "30px", fontFamily: "Inter, sans-serif" }}>
-      <div style={{ ...S.card, padding: "24px", marginBottom: "25px" }}>
-        <h1 style={{ margin: 0, color: C.slate, fontSize: "30px", fontWeight: "700" }}>Consultation des autres engagements</h1>
-        <p style={{ marginTop: "10px", color: C.muted, fontSize: "15px" }}>Consultez et recherchez les engagements enregistrés dans le système.</p>
-      </div>
+    <PageShell>
+      <PageHeader
+        icon={<BarChart3 className="h-6 w-6 text-white" />}
+        title="Consultation des autres engagements"
+        description="Recherchez et consultez l'ensemble des engagements enregistrés dans le système."
+        badge="Module Engagements"
+      />
 
-      <div style={{ ...S.card, padding: "20px", marginBottom: "25px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: "15px" }}>
-          {[
-            { icon: Search, placeholder: "Recherche générale...", type: "input", value: search, onChange: (e) => setSearch(e.target.value) },
-            { placeholder: "Administration", type:"input" },
-            { icon: Calendar, type: "date" },
-            { placeholder: "Statut", type: "select", options: ["Statut","Tous", "Validé", "En attente", "Rejeté"] },
-          ].map((f, i) => (
-            <div key={i} style={S.inputContainer}>
-              {f.icon && <f.icon size={18} color={C.muted}/>}
-              {f.type === "input" && <input placeholder={f.placeholder} value={f.value} onChange={f.onChange} style={S.inputStyle} />}
-              {f.type === "date" && <input type="date" style={S.inputStyle}/>}
-              {f.type === "select" && <select style={S.inputStyle}>{f.options?.map(o => <option key={o}>{o}</option>)}</select>}
+      <Card className="border-0 bg-white/80 shadow-sm backdrop-blur-sm">
+        <CardContent className="p-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="relative sm:col-span-2 lg:col-span-2 xl:col-span-2">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Recherche générale..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-11 border-gray-200 bg-white pl-10"
+              />
             </div>
-          ))}
-        </div>
-      </div>
 
-      <div style={{ ...S.card, borderRadius: "20px", overflow: "hidden" }}>
-        <div style={{ padding: "20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h3 style={{ margin: 0, color: C.slate }}>Liste des engagements</h3>
-          <Button color="danger" onClick={() => navigate("/acceuil")}>
-            <LogOut size={18}/>
-            Fermer
-          </Button>
-        </div>
+            <Select value={filtreProvince} onValueChange={handleProvinceChange}>
+              <SelectTrigger className="h-11 border-gray-200 bg-white">
+                <MapPin className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                <SelectValue placeholder="Province" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tous">Toutes les provinces</SelectItem>
+                {provinces.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.nom}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: "#f1f5f9", textAlign: "left" }}>
-                {["N° Engagement", "Date", "Administration", "Objet", "Montant", "Statut", "Actions"].map(h => <th key={h} style={{ padding: "18px", fontSize: "14px", color: C.slate }}>{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedData.map((item, i) => (
-                <tr key={item.id} style={{ borderBottom: i !== paginatedData.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                  <td style={S.td}>{item.id}</td>
-                  <td style={S.td}>{item.date}</td>
-                  <td style={S.td}>{item.administration}</td>
-                  <td style={S.td}>{item.objet}</td>
-                  <td style={S.td}>{item.montant}</td>
-                  <td style={S.td}><span style={{ padding: "8px 14px", borderRadius: "999px", fontSize: "13px", fontWeight: "600", ...statusMap[item.statut] }}>{item.statut}</span></td>
-                  <td style={S.td}>
-                    <div style={{ display: "flex", gap: "10px" }}>
-                      <button style={S.iconBtn} onClick={() => setSelected(item)}><Eye size={18} /></button>
-                      <button style={S.iconBtn}><Printer size={18} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            <Select
+              value={filtreAdministration}
+              onValueChange={handleAdministrationChange}
+            >
+              <SelectTrigger className="h-11 border-gray-200 bg-white">
+                <Building2 className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                <SelectValue placeholder="Administration" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tous">Toutes les administrations</SelectItem>
+                {administrationOptions.map((a) => (
+                  <SelectItem key={a.id} value={String(a.id)}>
+                    {a.nom}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        <div style={{ padding: "18px", display: "flex", justifyContent: "center", gap: "10px" }}>
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-            <button 
-              key={p} 
-              onClick={() => setCurrentPage(p)}
-              style={{ width: "38px", height: "38px", borderRadius: "10px", border: "none", background: p === currentPage ? C.blue : C.faintLight, color: p === currentPage ? "#fff" : C.slate, fontWeight: "600", cursor: "pointer" }}>
-              {p}
-            </button>
-          ))}
-        </div>
-      </div>
+            <Select value={filtreUo} onValueChange={setFiltreUo}>
+              <SelectTrigger className="h-11 border-gray-200 bg-white">
+                <SelectValue placeholder="Unité opérationnelle" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tous">Toutes les unités</SelectItem>
+                {uoOptions.map((u) => (
+                  <SelectItem key={u.id} value={String(u.id)}>
+                    {u.nom}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-      {selected && (
-        <div style={S.overlay}>
-          <div style={S.modal}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
-              <h2 style={{ margin: 0, color: C.slate }}>Détails de l'engagement</h2>
-              <button onClick={() => setSelected(null)} style={{ border: "none", background: "transparent", fontSize: "20px", cursor: "pointer" }}>✕</button>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="date"
+                value={filtreDate}
+                onChange={(e) => setFiltreDate(e.target.value)}
+                className="h-11 border-gray-200 bg-white pl-10"
+              />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px" }}>
-              <Detail label="Numéro" value={selected.id} />
-              <Detail label="Date" value={selected.date} />
-              <Detail label="Administration" value={selected.administration} />
-              <Detail label="Objet" value={selected.objet} />
-              <Detail label="Montant" value={selected.montant} />
-              <Detail label="Statut" value={selected.statut} />
-            </div>
-            <button style={{ marginTop: "25px", width: "100%", height: "50px", border: "none", borderRadius: "14px", background: C.blue, color: "#fff", fontWeight: "600", fontSize: "15px", cursor: "pointer" }}>Imprimer l'engagement</button>
+
+            <Select value={filtreStatut} onValueChange={setFiltreStatut}>
+              <SelectTrigger className="h-11 border-gray-200 bg-white">
+                <SelectValue placeholder="Statut" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tous">Tous les statuts</SelectItem>
+                {statuts.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
+
+          {hasActiveFilters && (
+            <div className="mt-3 flex justify-end">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                onClick={resetFilters}
+              >
+                Réinitialiser les filtres
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden border-0 bg-white/90 shadow-sm backdrop-blur-sm">
+        <div className="border-b border-gray-100 px-6 py-4">
+          <h2 className="font-semibold text-gray-900">Liste des engagements</h2>
+          <p className="text-sm text-muted-foreground">
+            {loading
+              ? "Chargement..."
+              : `${filteredData.length} résultat${filteredData.length !== 1 ? "s" : ""}`}
+          </p>
         </div>
-      )}
-    </div>
+
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
+                {[
+                  "N° Engagement",
+                  "Date",
+                  "Administration",
+                  "Objet",
+                  "Montant",
+                  "Statut",
+                  "Actions",
+                ].map((h) => (
+                  <TableHead
+                    key={h}
+                    className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    {h}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className="h-32 text-center text-muted-foreground"
+                  >
+                    Chargement...
+                  </TableCell>
+                </TableRow>
+              ) : paginatedData.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className="h-32 text-center text-muted-foreground"
+                  >
+                    Aucun engagement trouvé
+                  </TableCell>
+                </TableRow>
+              ) : (
+                paginatedData.map((item) => (
+                  <TableRow
+                    key={item.id}
+                    className="transition-colors hover:bg-indigo-50/30"
+                  >
+                    <TableCell className="font-medium text-indigo-600">
+                      {item.numero}
+                    </TableCell>
+                    <TableCell>{fmtDate(item.date)}</TableCell>
+                    <TableCell>
+                      <span>{item.administration_nom ?? "—"}</span>
+                      {item.province_nom && (
+                        <Badge
+                          variant="outline"
+                          className="ml-1.5 text-[10px] text-indigo-600"
+                        >
+                          {item.province_nom}
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="max-w-[200px] truncate">
+                      {item.objet ?? "—"}
+                    </TableCell>
+                    <TableCell className="font-semibold">
+                      {fmt(item.montant)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        className={
+                          statusClass[item.statut] ??
+                          "bg-slate-100 text-slate-600 hover:bg-slate-100"
+                        }
+                      >
+                        {item.statut}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+                          onClick={() => setSelected(item)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+                        >
+                          <Printer className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+
+        {filteredData.length > 0 && (
+          <div className="flex justify-center gap-2 border-t border-gray-100 p-4">
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+              <Button
+                key={p}
+                size="sm"
+                variant={p === currentPage ? "default" : "outline"}
+                className={cn(
+                  "h-9 w-9 rounded-lg p-0",
+                  p === currentPage && "bg-indigo-600 hover:bg-indigo-700"
+                )}
+                onClick={() => setCurrentPage(p)}
+              >
+                {p}
+              </Button>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Détails de l&apos;engagement</DialogTitle>
+          </DialogHeader>
+          {selected && (
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: "Numéro", value: selected.numero },
+                { label: "Date", value: fmtDate(selected.date) },
+                { label: "Province", value: selected.province_nom ?? "—" },
+                {
+                  label: "Administration",
+                  value: selected.administration_nom ?? "—",
+                },
+                {
+                  label: "Unité opérationnelle",
+                  value: selected.unite_operationnelle_nom ?? "—",
+                },
+                { label: "Objet", value: selected.objet ?? "—" },
+                { label: "Montant", value: fmt(selected.montant) },
+                { label: "Statut", value: selected.statut },
+                { label: "Demandeur", value: selected.demandeur ?? "—" },
+                { label: "Fournisseur", value: selected.fournisseur ?? "—" },
+              ].map(({ label, value }) => (
+                <div
+                  key={label}
+                  className="rounded-xl border border-gray-100 bg-slate-50 p-3"
+                >
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <p className="mt-1 font-semibold text-gray-900">{value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <Button className="mt-2 w-full gap-2" variant="institution">
+            <Printer className="h-4 w-4" />
+            Imprimer l&apos;engagement
+          </Button>
+        </DialogContent>
+      </Dialog>
+    </PageShell>
   );
 }
