@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Clock,
+  MapPin,
   Plus,
   Receipt,
   Search,
+  UserCheck,
   Wallet,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -33,11 +35,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
-import { authFetch } from "@/config/app";
+import {
+  ensureUserProvince,
+  getEngagements,
+  getEngagementsVises,
+  getProvinces,
+  getUserSession,
+  getUsers,
+  isControleurBudgetaire,
+  isSuperAdmin,
+  updateEngagement,
+  type EngagementItem,
+  type ProvinceItem,
+  type UserListItem,
+} from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-
-const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("fr-FR", {
@@ -46,41 +59,32 @@ const fmt = (n: number) =>
     maximumFractionDigits: 0,
   }).format(n);
 
-const fmtDate = (d: string) => new Date(d).toLocaleDateString("fr-FR");
-
-interface Reglement {
-  id: number;
-  reference: string;
-  engagement_id: number;
-  titre?: string;
-  administration?: string;
-  fournisseur: string;
-  montant: number;
-  mode_paiement: string;
-  date_reglement: string;
-  statut: string;
-}
-
-interface Engagement {
-  id: number;
-  titre: string;
-  fournisseur: string;
-  montant: number;
-  administration: string;
-}
+const fmtDate = (d: string) => {
+  const [y, m, day] = d.split("-");
+  return day && m && y ? `${day}/${m}/${y}` : d;
+};
 
 const statusClass: Record<string, string> = {
-  "En attente": "bg-amber-100 text-amber-800 hover:bg-amber-100",
-  Payé: "bg-emerald-100 text-emerald-800 hover:bg-emerald-100",
-  Rejeté: "bg-red-100 text-red-800 hover:bg-red-100",
+  Visé: "bg-amber-100 text-amber-800 hover:bg-amber-100",
+  "En attente de règlement": "bg-amber-100 text-amber-800 hover:bg-amber-100",
+  Réglé: "bg-emerald-100 text-emerald-800 hover:bg-emerald-100",
 };
 
 export default function Reglements() {
   const { toast } = useToast();
-  const [reglements, setReglements] = useState<Reglement[]>([]);
-  const [engagementsVises, setEngVises] = useState<Engagement[]>([]);
+  const sessionUser = getUserSession();
+  const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
+  const [controleurs, setControleurs] = useState<UserListItem[]>([]);
+  const [enAttente, setEnAttente] = useState<EngagementItem[]>([]);
+  const [regles, setRegles] = useState<EngagementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [filtreProvince, setFiltreProvince] = useState(
+    sessionUser && !isSuperAdmin(sessionUser.role) && sessionUser.province_id
+      ? String(sessionUser.province_id)
+      : "tous"
+  );
+  const [filtreControleur, setFiltreControleur] = useState("tous");
   const [filtreStatut, setFiltreStatut] = useState("Tous");
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
@@ -92,12 +96,21 @@ export default function Reglements() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [r1, r2] = await Promise.all([
-        authFetch(`${API}/reglements`).then((r) => r.json()),
-        authFetch(`${API}/engagements/vises`).then((r) => r.json()),
+      await ensureUserProvince();
+
+      const [visesData, allData, provincesData, usersData] = await Promise.all([
+        getEngagementsVises(),
+        getEngagements(),
+        getProvinces(),
+        getUsers(),
       ]);
-      setReglements(Array.isArray(r1) ? r1 : []);
-      setEngVises(Array.isArray(r2) ? r2 : []);
+
+      setEnAttente(visesData);
+      setRegles(allData.filter((e) => e.statut === "Réglé"));
+      setProvinces(provincesData);
+      setControleurs(
+        usersData.filter((u) => u.role && isControleurBudgetaire(u.role))
+      );
     } catch {
       toast({
         title: "Erreur",
@@ -110,33 +123,115 @@ export default function Reglements() {
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const allRows = useMemo(
+    () => [
+      ...enAttente.map((e) => ({
+        ...e,
+        displayStatut: "En attente de règlement" as const,
+      })),
+      ...regles.map((e) => ({
+        ...e,
+        displayStatut: "Réglé" as const,
+      })),
+    ],
+    [enAttente, regles]
+  );
+
+  const controleurOptions = useMemo(() => {
+    if (filtreProvince === "tous") return controleurs;
+    return controleurs.filter(
+      (c) => String(c.province_id) === filtreProvince
+    );
+  }, [controleurs, filtreProvince]);
 
   const filtered = useMemo(
     () =>
-      reglements.filter((r) => {
-        const matchSearch = Object.values(r)
+      allRows.filter((r) => {
+        const haystack = [
+          r.numero,
+          r.objet,
+          r.titre,
+          r.fournisseur,
+          r.administration_nom,
+          r.province_nom,
+          r.demandeur,
+        ]
+          .filter(Boolean)
           .join(" ")
-          .toLowerCase()
-          .includes(search.toLowerCase());
+          .toLowerCase();
+        const matchSearch =
+          !search.trim() || haystack.includes(search.toLowerCase());
         const matchStatut =
-          filtreStatut === "Tous" || r.statut === filtreStatut;
-        return matchSearch && matchStatut;
+          filtreStatut === "Tous" ||
+          (filtreStatut === "En attente" &&
+            r.displayStatut === "En attente de règlement") ||
+          (filtreStatut === "Réglé" && r.displayStatut === "Réglé");
+        const matchProvince =
+          filtreProvince === "tous" ||
+          String(r.province_id) === filtreProvince;
+        const selectedControleur = controleurOptions.find(
+          (c) => String(c.id) === filtreControleur
+        );
+        const matchControleur =
+          filtreControleur === "tous" ||
+          String(r.user_id) === filtreControleur ||
+          (selectedControleur != null &&
+            r.demandeur === selectedControleur.nom);
+        return (
+          matchSearch && matchStatut && matchProvince && matchControleur
+        );
       }),
-    [reglements, search, filtreStatut]
+    [
+      allRows,
+      search,
+      filtreStatut,
+      filtreProvince,
+      filtreControleur,
+      controleurOptions,
+    ]
+  );
+
+  const enAttentePourReglement = useMemo(
+    () =>
+      allRows.filter((r) => {
+        if (r.displayStatut !== "En attente de règlement") return false;
+        const matchProvince =
+          filtreProvince === "tous" ||
+          String(r.province_id) === filtreProvince;
+        const selectedControleur = controleurOptions.find(
+          (c) => String(c.id) === filtreControleur
+        );
+        const matchControleur =
+          filtreControleur === "tous" ||
+          String(r.user_id) === filtreControleur ||
+          (selectedControleur != null &&
+            r.demandeur === selectedControleur.nom);
+        return matchProvince && matchControleur;
+      }),
+    [allRows, filtreProvince, filtreControleur, controleurOptions]
   );
 
   const stats = useMemo(
     () => ({
-      total: reglements.length,
-      enAttente: reglements.filter((r) => r.statut === "En attente").length,
-      paye: reglements.filter((r) => r.statut === "Payé").length,
-      montantTotal: reglements
-        .filter((r) => r.statut === "Payé")
+      total: filtered.length,
+      enAttente: filtered.filter(
+        (r) => r.displayStatut === "En attente de règlement"
+      ).length,
+      regle: filtered.filter((r) => r.displayStatut === "Réglé").length,
+      montantTotal: filtered
+        .filter((r) => r.displayStatut === "Réglé")
         .reduce((s, r) => s + Number(r.montant), 0),
     }),
-    [reglements]
+    [filtered]
   );
+
+  const handleProvinceChange = (value: string) => {
+    setFiltreProvince(value);
+    setFiltreControleur("tous");
+  };
 
   const handleCreate = async () => {
     if (!form.engagement_id) {
@@ -148,21 +243,9 @@ export default function Reglements() {
       return;
     }
     try {
-      const res = await authFetch(`${API}/reglements`, {
-        method: "POST",
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        toast({
-          title: "Erreur",
-          description: err.error || "Erreur lors de la création.",
-          variant: "destructive",
-        });
-        return;
-      }
+      await updateEngagement(Number(form.engagement_id), { statut: "Réglé" });
       toast({
-        title: "Règlement créé",
+        title: "Règlement enregistré",
         description: "Le paiement a été enregistré avec succès.",
       });
       setShowCreate(false);
@@ -172,10 +255,11 @@ export default function Reglements() {
         date_reglement: new Date().toISOString().split("T")[0],
       });
       fetchData();
-    } catch {
+    } catch (err) {
       toast({
-        title: "Erreur réseau",
-        description: "Impossible de contacter le serveur.",
+        title: "Erreur",
+        description:
+          err instanceof Error ? err.message : "Erreur lors de la création.",
         variant: "destructive",
       });
     }
@@ -195,8 +279,8 @@ export default function Reglements() {
       gradient: "from-amber-500 to-orange-500",
     },
     {
-      label: "Payés",
-      value: stats.paye,
+      label: "Réglés",
+      value: stats.regle,
       icon: Wallet,
       gradient: "from-emerald-500 to-teal-600",
     },
@@ -209,18 +293,25 @@ export default function Reglements() {
     },
   ];
 
+  const provinceLabel = useMemo(() => {
+    if (filtreProvince === "tous") return "Toutes les provinces";
+    const p = provinces.find((pr) => String(pr.id) === filtreProvince);
+    return p ? `Province ${p.nom}` : "Province sélectionnée";
+  }, [filtreProvince, provinces]);
+
   return (
     <PageShell>
       <PageHeader
         icon={<Receipt className="h-6 w-6 text-white" />}
         title="Module des règlements"
-        description="Gestion des paiements sur engagements visés."
+        description={`Gestion des paiements sur engagements visés — ${provinceLabel}.`}
         badge="Module Règlement"
         action={
           <Button
             variant="institution"
             className="gap-2 shadow-md"
             onClick={() => setShowCreate(true)}
+            disabled={enAttentePourReglement.length === 0}
           >
             <Plus className="h-4 w-4" />
             Nouveau règlement
@@ -262,8 +353,8 @@ export default function Reglements() {
       </div>
 
       <Card className="border-0 bg-white/80 shadow-sm backdrop-blur-sm">
-        <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
+        <CardContent className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="relative sm:col-span-2 lg:col-span-2">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Rechercher..."
@@ -272,12 +363,43 @@ export default function Reglements() {
               className="h-11 border-gray-200 bg-white pl-10"
             />
           </div>
+          <Select value={filtreProvince} onValueChange={handleProvinceChange}>
+            <SelectTrigger className="h-11 border-gray-200 bg-white">
+              <MapPin className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+              <SelectValue placeholder="Province" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tous">Toutes les provinces</SelectItem>
+              {provinces.map((p) => (
+                <SelectItem key={p.id} value={String(p.id)}>
+                  {p.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={filtreControleur}
+            onValueChange={setFiltreControleur}
+          >
+            <SelectTrigger className="h-11 border-gray-200 bg-white">
+              <UserCheck className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+              <SelectValue placeholder="Contrôleur budgétaire" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tous">Tous les contrôleurs</SelectItem>
+              {controleurOptions.map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>
+                  {c.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={filtreStatut} onValueChange={setFiltreStatut}>
-            <SelectTrigger className="h-11 w-full border-gray-200 bg-white sm:w-44">
+            <SelectTrigger className="h-11 border-gray-200 bg-white sm:col-span-2 lg:col-span-1">
               <SelectValue placeholder="Statut" />
             </SelectTrigger>
             <SelectContent>
-              {["Tous", "En attente", "Payé", "Rejeté"].map((s) => (
+              {["Tous", "En attente", "Réglé"].map((s) => (
                 <SelectItem key={s} value={s}>
                   {s}
                 </SelectItem>
@@ -293,11 +415,11 @@ export default function Reglements() {
             <TableHeader>
               <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
                 {[
-                  "Référence",
-                  "Engagement",
+                  "N° engagement",
+                  "Objet",
                   "Fournisseur",
                   "Montant",
-                  "Mode",
+                  "Administration",
                   "Date",
                   "Statut",
                 ].map((h) => (
@@ -326,32 +448,33 @@ export default function Reglements() {
                     colSpan={7}
                     className="h-32 text-center text-muted-foreground"
                   >
-                    Aucun règlement trouvé
+                    Aucun engagement visé en attente de règlement
                   </TableCell>
                 </TableRow>
               ) : (
                 filtered.map((r) => (
                   <TableRow
-                    key={r.id}
+                    key={`${r.id}-${r.displayStatut}`}
                     className="transition-colors hover:bg-indigo-50/30"
                   >
                     <TableCell className="font-semibold text-indigo-600">
-                      {r.reference}
+                      {r.numero}
                     </TableCell>
-                    <TableCell>{r.titre || `#${r.engagement_id}`}</TableCell>
-                    <TableCell>{r.fournisseur}</TableCell>
+                    <TableCell>{r.objet || r.titre || "—"}</TableCell>
+                    <TableCell>{r.fournisseur || "—"}</TableCell>
                     <TableCell className="font-semibold">
                       {fmt(Number(r.montant))}
                     </TableCell>
-                    <TableCell>{r.mode_paiement}</TableCell>
-                    <TableCell>{fmtDate(r.date_reglement)}</TableCell>
+                    <TableCell>{r.administration_nom || "—"}</TableCell>
+                    <TableCell>{fmtDate(r.date)}</TableCell>
                     <TableCell>
                       <Badge
                         className={
-                          statusClass[r.statut] ?? statusClass["En attente"]
+                          statusClass[r.displayStatut] ??
+                          statusClass["En attente de règlement"]
                         }
                       >
-                        {r.statut}
+                        {r.displayStatut}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -370,7 +493,7 @@ export default function Reglements() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase tracking-wide text-primary/80">
-                Engagement *
+                Engagement visé *
               </Label>
               <Select
                 value={form.engagement_id}
@@ -379,19 +502,21 @@ export default function Reglements() {
                 }
               >
                 <SelectTrigger className="h-11 border-gray-200">
-                  <SelectValue placeholder="Sélectionner un engagement" />
+                  <SelectValue placeholder="Sélectionner un engagement visé" />
                 </SelectTrigger>
                 <SelectContent>
-                  {engagementsVises.map((e) => (
+                  {enAttentePourReglement.map((e) => (
                     <SelectItem key={e.id} value={String(e.id)}>
-                      #{e.id} — {e.titre} — {fmt(Number(e.montant))}
+                      {e.numero} — {e.objet || e.titre} —{" "}
+                      {fmt(Number(e.montant))}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {engagementsVises.length === 0 && (
+              {enAttentePourReglement.length === 0 && (
                 <p className="text-xs text-amber-600">
-                  Aucun engagement visé disponible
+                  Aucun engagement visé en attente de règlement pour les filtres
+                  sélectionnés
                 </p>
               )}
             </div>

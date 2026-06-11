@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom"; 
+import { Link, useNavigate } from "react-router-dom"; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { login, saveUserSession } from "@/config/app";
+import { getDefaultHomeRoute, login, saveUserSession } from "@/config/app";
 import { Card, CardContent } from "@/components/ui/card";
 import InstitutionLogo from "@/components/InstitutionLogo";
 import PCLLogo from "@/components/PCLLogo";
@@ -42,7 +42,7 @@ const Login = () => {
         description: data.message,
       });
 
-      navigate("/acceuil");
+      navigate(data.user ? getDefaultHomeRoute(data.user.role) : "/acceuil");
     } catch (error) {
       toast({
         title: "Erreur",
@@ -124,6 +124,15 @@ const Login = () => {
               >
                 {isLoading ? "Connexion en cours..." : "Se connecter"}
               </Button>
+
+              <div className="text-center">
+                <Link
+                  to="/mot-de-passe-oublie"
+                  className="text-sm font-medium text-accent hover:underline"
+                >
+                  Mot de passe oublié ?
+                </Link>
+              </div>
             </form>
             
           </CardContent>

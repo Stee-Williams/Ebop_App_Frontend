@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+// En dev, laisser vide pour passer par le proxy Vite (/api → localhost:8000)
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 /* ==========================================
 LOGIN 
@@ -14,6 +15,8 @@ export type LoginUser = {
   nom: string;
   matricule: string;
   role: string;
+  province_id?: number | null;
+  province_nom?: string | null;
 };
 
 export type LoginResponse = {
@@ -31,6 +34,16 @@ export function saveUserSession(user: LoginUser, token?: string): void {
   sessionStorage.setItem("userNom", user.nom);
   sessionStorage.setItem("userMatricule", user.matricule);
   sessionStorage.setItem("userRole", user.role);
+  if (user.province_id != null) {
+    sessionStorage.setItem("userProvinceId", String(user.province_id));
+  } else {
+    sessionStorage.removeItem("userProvinceId");
+  }
+  if (user.province_nom) {
+    sessionStorage.setItem("userProvinceNom", user.province_nom);
+  } else {
+    sessionStorage.removeItem("userProvinceNom");
+  }
   if (token) {
     sessionStorage.setItem(AUTH_TOKEN_KEY, token);
   }
@@ -53,6 +66,8 @@ export type UserSession = {
   nom: string;
   matricule: string;
   role: string;
+  province_id: number | null;
+  province_nom: string | null;
 };
 
 export function getUserSession(): UserSession | null {
@@ -60,12 +75,77 @@ export function getUserSession(): UserSession | null {
   const nom = sessionStorage.getItem("userNom");
   const matricule = sessionStorage.getItem("userMatricule");
   const role = sessionStorage.getItem("userRole");
+  const provinceId = sessionStorage.getItem("userProvinceId");
+  const provinceNom = sessionStorage.getItem("userProvinceNom");
 
   if (!id || !nom || !matricule || !role) {
     return null;
   }
 
-  return { id: Number(id), nom, matricule, role };
+  return {
+    id: Number(id),
+    nom,
+    matricule,
+    role,
+    province_id: provinceId ? Number(provinceId) : null,
+    province_nom: provinceNom,
+  };
+}
+
+export {
+  canAccessPath,
+  canManageEngagements,
+  canManageReglements,
+  canManageUsers,
+  canVisaEngagements,
+  getDefaultHomeRoute,
+  getNavItemsForRole,
+  isSuperAdmin,
+  normalizeAppRole,
+} from "@/config/permissions";
+
+export function isControleurBudgetaire(role: string): boolean {
+  const normalized = role.toUpperCase().replace(/\s+/g, "_");
+  return (
+    normalized.includes("CONTROLEUR") ||
+    normalized.includes("CONTRÔLEUR") ||
+    normalized === "CONTROLEUR_BUDGETAIRE"
+  );
+}
+
+export function filterByUserProvince<T extends { province_id: number | null }>(
+  items: T[],
+  provinceId: number | null
+): T[] {
+  if (provinceId == null) return items;
+  const id = Number(provinceId);
+  return items.filter((item) => item.province_id != null && Number(item.province_id) === id);
+}
+
+/** Recharge province_id / province_nom depuis l'API si absents de la session. */
+export async function ensureUserProvince(): Promise<UserSession | null> {
+  const session = getUserSession();
+  if (!session) return null;
+  if (session.province_id != null) return session;
+
+  try {
+    const profile = await getUserById(session.id);
+    if (profile.province_id != null) {
+      sessionStorage.setItem("userProvinceId", String(profile.province_id));
+      if (profile.province_nom) {
+        sessionStorage.setItem("userProvinceNom", profile.province_nom);
+      }
+      return {
+        ...session,
+        province_id: profile.province_id,
+        province_nom: profile.province_nom,
+      };
+    }
+  } catch {
+    // session inchangée si l'API échoue
+  }
+
+  return session;
 }
 
 export async function authFetch(
@@ -118,29 +198,64 @@ export async function login(payload: LoginPayload): Promise<LoginResponse> {
   return data;
 }
 
+export type ResetPasswordPayload = {
+  matricule: string;
+  new_password: string;
+};
+
+export type ResetPasswordResponse = {
+  success: boolean;
+  message: string;
+};
+
+export async function resetPassword(
+  payload: ResetPasswordPayload
+): Promise<ResetPasswordResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/forgot-password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      matricule: payload.matricule.trim(),
+      new_password: payload.new_password,
+    }),
+  });
+
+  let data: ResetPasswordResponse;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Réponse invalide du serveur");
+  }
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la réinitialisation");
+  }
+
+  return data;
+}
+
 /* ==========================================
 CREATE USER
 ========================================== */
 
 export type CreateUserPayload = {
-nom: string;
-matricule: string;
-password: string;
-role_id: number;
+  nom: string;
+  matricule: string;
+  password: string;
+  role_id: number;
+  province_id: number;
 };
 
 export type CreateUserResponse = {
-success: boolean;
-message: string;
-user?: {
-id: number;
-nom: string;
-matricule: string;
-role_id: number;
-};
+  success: boolean;
+  message: string;
+  user?: UserListItem;
 };
 
 export const ROLE_OPTIONS = [
+  { label: "Super administrateur", value: "Super administrateur", id: 6 },
   { label: "DBA", value: "DBA", id: 4 },
   { label: "Assistant gestionnaire", value: "Assistant gestionnaire", id: 5 },
   { label: "Contrôleur Budgétaire", value: "Controleur Budgétaire", id: 1 },
@@ -156,7 +271,21 @@ export function getRoleId(role: string): number | undefined {
   return ROLE_IDS[role];
 }
 
+const ROLE_DB_LABELS: Record<string, string> = {
+  SUPER_ADMIN: "Super administrateur",
+  CONTROLEUR_BUDGETAIRE: "Contrôleur Budgétaire",
+  TRESORIER: "Trésorier",
+  INFORMATICIEN: "Informaticien",
+  DBA: "DBA",
+  ASSISTANT_GESTIONNAIRE: "Assistant gestionnaire",
+};
+
 export function getRoleLabel(roleName: string): string {
+  const dbKey = roleName.toUpperCase().replace(/\s+/g, "_");
+  if (ROLE_DB_LABELS[dbKey]) {
+    return ROLE_DB_LABELS[dbKey];
+  }
+
   const match = ROLE_OPTIONS.find(
     (role) =>
       role.value.toLowerCase() === roleName.toLowerCase() ||
@@ -166,6 +295,84 @@ export function getRoleLabel(roleName: string): string {
   );
 
   return match?.label ?? roleName;
+}
+
+export type RoleItem = {
+  id: number;
+  nom: string;
+};
+
+export const getRoles = () => fetchList<RoleItem>("/api/roles");
+
+export type UserListItem = {
+  id: number;
+  nom: string;
+  matricule: string;
+  role: string | null;
+  role_id: number | null;
+  province_id: number | null;
+  province_nom: string | null;
+};
+
+export const getUsers = () => fetchList<UserListItem>("/api/users");
+
+export async function getUserById(id: number): Promise<UserListItem> {
+  const response = await authFetch(`${API_BASE_URL}/api/users/${id}`);
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Utilisateur introuvable");
+  }
+
+  return {
+    id: data.id,
+    nom: data.nom,
+    matricule: data.matricule,
+    role: data.role ?? null,
+    role_id: data.role_id ?? null,
+    province_id: data.province_id ?? null,
+    province_nom: data.province_nom ?? null,
+  };
+}
+
+export type UpdateUserPayload = {
+  nom?: string;
+  role_id?: number;
+  province_id?: number | null;
+};
+
+export async function updateUser(
+  id: number,
+  payload: UpdateUserPayload
+): Promise<{ success: boolean; message?: string; user?: UserListItem }> {
+  const response = await authFetch(`${API_BASE_URL}/api/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la mise à jour");
+  }
+
+  return data;
+}
+
+export async function deleteUser(
+  id: number
+): Promise<{ success: boolean; message?: string }> {
+  const response = await authFetch(`${API_BASE_URL}/api/users/${id}`, {
+    method: "DELETE",
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la suppression");
+  }
+
+  return data;
 }
 
 /* ==========================================
@@ -393,6 +600,7 @@ export type EngagementItem = {
   objet?: string | null;
   titre?: string | null;
   demandeur?: string | null;
+  user_id?: number | null;
   fournisseur?: string | null;
   province_id: number | null;
   province_nom: string | null;
@@ -407,8 +615,12 @@ export type EngagementItem = {
 export const getEngagements = () =>
   fetchList<EngagementItem>("/api/engagements");
 
+export const getEngagementsVises = () =>
+  fetchList<EngagementItem>("/api/engagements/vises");
+
 export type CreateEngagementPayload = {
-  numero: string;
+  titre: string;
+  numero?: string;
   montant: number;
   date: string;
   statut: string;
@@ -417,6 +629,22 @@ export type CreateEngagementPayload = {
   fournisseur_id?: number;
   user_id?: number;
 };
+
+export async function getNextEngagementNumero(
+  annee?: number
+): Promise<string> {
+  const query = annee ? `?annee=${annee}` : "";
+  const response = await authFetch(
+    `${API_BASE_URL}/api/engagements/next-numero${query}`
+  );
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Impossible de générer le numéro");
+  }
+
+  return data.numero as string;
+}
 
 export type CreateEngagementResponse = {
   success: boolean;
@@ -430,6 +658,24 @@ export type CreateEngagementResponse = {
   };
 };
 
+export async function updateEngagement(
+  id: number,
+  payload: { statut: string }
+): Promise<{ success: boolean; message?: string }> {
+  const response = await authFetch(`${API_BASE_URL}/api/engagements/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la mise à jour de l'engagement");
+  }
+
+  return data;
+}
+
 export async function createEngagement(
   payload: CreateEngagementPayload
 ): Promise<CreateEngagementResponse> {
@@ -438,7 +684,17 @@ export async function createEngagement(
     body: JSON.stringify(payload),
   });
 
-  const data: CreateEngagementResponse = await response.json();
+  const raw = await response.text();
+  let data: CreateEngagementResponse;
+  try {
+    data = JSON.parse(raw) as CreateEngagementResponse;
+  } catch {
+    throw new Error(
+      response.ok
+        ? "Réponse serveur invalide"
+        : "Erreur serveur lors de la création de l'engagement. Vérifiez que les migrations sont à jour."
+    );
+  }
 
   if (!response.ok || !data.success) {
     throw new Error(data.message || "Erreur lors de la création de l'engagement");
@@ -448,23 +704,28 @@ export async function createEngagement(
 }
 
 export async function createUser(
-payload: CreateUserPayload
+  payload: CreateUserPayload
 ): Promise<CreateUserResponse> {
-const response = await fetch(`${API_BASE_URL}/api/users`, {
-method: "POST",
-headers: {
-"Content-Type": "application/json",
-},
-body: JSON.stringify(payload),
-});
+  const response = await authFetch(`${API_BASE_URL}/api/users`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 
-const data: CreateUserResponse = await response.json();
+  const raw = await response.text();
+  let data: CreateUserResponse;
+  try {
+    data = JSON.parse(raw) as CreateUserResponse;
+  } catch {
+    throw new Error(
+      response.status >= 500
+        ? "Erreur serveur lors de la création. Vérifiez les logs Symfony."
+        : "Réponse invalide du serveur. Vérifiez que le backend est démarré sur le port 8000."
+    );
+  }
 
-if (!response.ok) {
-throw new Error(
-data.message || "Erreur lors de la création du compte"
-);
-}
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la création du compte");
+  }
 
-return data;
+  return data;
 }

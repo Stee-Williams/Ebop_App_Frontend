@@ -8,8 +8,8 @@ import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
 import Inscription from "./pages/Inscription";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
 import HomeContent from "./pages/HomeContent";
-import Profile from "./pages/Profile";
 import Autres from "./pages/Autres";
 import Creation from "./pages/Creation";
 import VisaEngagements from "./pages/Viser";
@@ -18,6 +18,7 @@ import MonProfil from "./pages/MonProfil";
 import Parametres from "./pages/Parametres";
 import PlaceholderPage from "./pages/PlaceholderPage";
 import BudgetConsultation from "./pages/BudgetConsultation";
+import Utilisateurs from "./pages/Utilisateurs";
 import AppLayout from "./components/layout/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -32,7 +33,11 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/inscription" element={<Inscription />} />
+          <Route path="/mot-de-passe-oublie" element={<ForgotPassword />} />
+          <Route
+            path="/inscription"
+            element={<Navigate to="/acceuil/utilisateurs" replace />}
+          />
           <Route
             path="/dashboard"
             element={
@@ -72,18 +77,23 @@ const App = () => (
               }
             />
             <Route path="reglement" element={<Reglements />} />
-            <Route path="divers/budget" element={<BudgetConsultation />} />
-            <Route path="divers/profils" element={<Profile embedded />} />
+            <Route path="budget" element={<BudgetConsultation />} />
+            <Route path="utilisateurs" element={<Utilisateurs />} />
+            <Route path="utilisateurs/inscription" element={<Inscription embedded />} />
             <Route path="profil" element={<MonProfil />} />
             <Route path="parametres" element={<Parametres />} />
           </Route>
 
           {/* Redirections des anciennes routes */}
-          <Route path="/profile" element={<Navigate to="/acceuil/divers/profils" replace />} />
+          <Route path="/profile" element={<Navigate to="/acceuil/utilisateurs" replace />} />
+          <Route path="/acceuil/divers/utilisateurs" element={<Navigate to="/acceuil/utilisateurs" replace />} />
+          <Route path="/acceuil/divers/inscription" element={<Navigate to="/acceuil/utilisateurs/inscription" replace />} />
+          <Route path="/acceuil/divers/profils" element={<Navigate to="/acceuil/utilisateurs" replace />} />
           <Route path="/autres" element={<Navigate to="/acceuil/engagements/autres" replace />} />
           <Route path="/creation" element={<Navigate to="/acceuil/engagements/creation" replace />} />
           <Route path="/viser" element={<Navigate to="/acceuil/engagements/viser" replace />} />
           <Route path="/reglement" element={<Navigate to="/acceuil/reglement" replace />} />
+          <Route path="/acceuil/divers/budget" element={<Navigate to="/acceuil/budget" replace />} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>

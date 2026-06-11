@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -9,7 +10,7 @@ import {
   Receipt,
   Sparkles,
   TrendingUp,
-  Users,
+  UserPlus,
   Wallet,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,47 +19,27 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { getRoleLabel, getUserSession } from "@/config/app";
+import {
+  canAccessPath,
+  ensureUserProvince,
+  filterByUserProvince,
+  getBudgetConsultation,
+  getEngagements,
+  getUserSession,
+  isControleurBudgetaire,
+  isSuperAdmin,
+  type EngagementItem,
+  type UserSession,
+} from "@/config/app";
 import InstitutionLogo from "@/components/InstitutionLogo";
 import { cn } from "@/lib/utils";
 
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Bonjour";
-  if (hour < 18) return "Bon après-midi";
-  return "Bonsoir";
-}
-
-const STATS = [
-  {
-    label: "Engagements actifs",
-    value: "—",
-    trend: "En attente de données",
-    icon: FileCheck,
-    gradient: "from-indigo-500 to-blue-600",
-  },
-  {
-    label: "Règlements du mois",
-    value: "—",
-    trend: "Synchronisation API",
-    icon: Receipt,
-    gradient: "from-teal-500 to-emerald-600",
-  },
-  {
-    label: "Budget disponible",
-    value: "0 FCFA",
-    trend: "Exercice en cours",
-    icon: Wallet,
-    gradient: "from-amber-500 to-orange-500",
-  },
-  {
-    label: "Taux de visa",
-    value: "—",
-    trend: "Calcul automatique",
-    icon: TrendingUp,
-    gradient: "from-violet-500 to-purple-600",
-  },
-];
+const fmt = (n: number) =>
+  new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "XAF",
+    maximumFractionDigits: 0,
+  }).format(n);
 
 const QUICK_ACTIONS = [
   {
@@ -106,22 +87,165 @@ const QUICK_ACTIONS = [
     disabled: true,
   },
   {
-    title: "Profils utilisateurs",
-    desc: "Mise à jour des rôles",
-    to: "/acceuil/divers/profils",
-    icon: Users,
+    title: "Consultation budget",
+    desc: "Visualiser les lignes budgétaires",
+    to: "/acceuil/budget",
+    icon: Wallet,
+    color: "text-sky-600 bg-sky-50",
+  },
+  {
+    title: "Gestion des utilisateurs",
+    desc: "Gérer les comptes du portail",
+    to: "/acceuil/utilisateurs",
+    icon: UserPlus,
     color: "text-rose-600 bg-rose-50",
   },
 ];
 
+function filterReglementsDuMois(
+  engagements: EngagementItem[],
+  provinceId: number | null
+): EngagementItem[] {
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+
+  const parProvince = filterByUserProvince(engagements, provinceId);
+
+  return parProvince.filter((e) => {
+    if (e.statut !== "Réglé") return false;
+    const d = new Date(e.date);
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+  });
+}
+
+function computeStats(
+  allEngagements: EngagementItem[],
+  budgetDisponible: number,
+  provinceId: number | null,
+  provinceNom: string | null,
+  restrictToProvince: boolean
+) {
+  const engagements = filterByUserProvince(allEngagements, provinceId);
+
+  const actifs = engagements.filter((e) => e.statut === "En attente").length;
+
+  const reglementsMois = restrictToProvince
+    ? provinceId != null
+      ? filterReglementsDuMois(allEngagements, provinceId).length
+      : 0
+    : filterReglementsDuMois(allEngagements, provinceId).length;
+
+  const vises = engagements.filter((e) => e.statut === "Visé").length;
+  const rejetes = engagements.filter((e) => e.statut === "Rejeté").length;
+  const traites = vises + rejetes;
+  const tauxVisa =
+    traites > 0 ? `${Math.round((vises / traites) * 100)} %` : "—";
+
+  const provinceLabel = provinceNom
+    ? `Province ${provinceNom}`
+    : restrictToProvince
+      ? "Province non renseignée"
+      : "Toutes provinces";
+
+  return [
+    {
+      label: "Engagements actifs",
+      value: String(actifs),
+      trend: `${actifs} en attente · ${provinceLabel}`,
+      icon: FileCheck,
+      gradient: "from-indigo-500 to-blue-600",
+    },
+    {
+      label: "Règlements du mois",
+      value: String(reglementsMois),
+      trend: `${reglementsMois} réglé(s) ce mois · ${provinceLabel}`,
+      icon: Receipt,
+      gradient: "from-teal-500 to-emerald-600",
+    },
+    {
+      label: "Budget disponible",
+      value: fmt(budgetDisponible),
+      trend: "Exercice en cours",
+      icon: Wallet,
+      gradient: "from-amber-500 to-orange-500",
+    },
+    {
+      label: "Taux de visa",
+      value: tauxVisa,
+      trend: `${vises} visé(s) sur ${traites} traité(s)`,
+      icon: TrendingUp,
+      gradient: "from-violet-500 to-purple-600",
+    },
+  ];
+}
+
 const HomeContent = () => {
   const navigate = useNavigate();
-  const user = getUserSession();
-  const greeting = getGreeting();
+  const [user, setUser] = useState<UserSession | null>(() => getUserSession());
+  const [stats, setStats] = useState(() =>
+    computeStats([], 0, null, null, false)
+  );
+
+  useEffect(() => {
+    const load = async () => {
+      const currentUser = (await ensureUserProvince()) ?? getUserSession();
+      setUser(currentUser);
+
+      const superAdmin = currentUser
+        ? isSuperAdmin(currentUser.role)
+        : false;
+      const provinceId = superAdmin
+        ? null
+        : (currentUser?.province_id ?? null);
+      const provinceNom = superAdmin
+        ? null
+        : (currentUser?.province_nom ?? null);
+      const restrictToProvince =
+        currentUser != null &&
+        isControleurBudgetaire(currentUser.role) &&
+        !superAdmin;
+
+      try {
+        const [engagementsData, budgetData] = await Promise.all([
+          getEngagements(),
+          getBudgetConsultation(),
+        ]);
+
+        const lignes = filterByUserProvince(budgetData.lignes, provinceId);
+        const budgetDisponible = lignes.reduce(
+          (sum, l) => sum + l.montant_disponible,
+          0
+        );
+
+        setStats(
+          computeStats(
+            engagementsData,
+            budgetDisponible,
+            provinceId,
+            provinceNom,
+            restrictToProvince
+          )
+        );
+      } catch {
+        setStats(
+          computeStats([], 0, provinceId, provinceNom, restrictToProvince)
+        );
+      }
+    };
+
+    load();
+  }, []);
+
+  const quickActions = useMemo(() => {
+    if (!user) return [];
+    return QUICK_ACTIONS.filter(
+      (action) => action.disabled || canAccessPath(user.role, action.to)
+    );
+  }, [user]);
 
   return (
     <div className="relative min-h-full overflow-hidden">
-      {/* Fond décoratif */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-32 -top-32 h-96 w-96 rounded-full bg-indigo-100/60 blur-3xl" />
         <div className="absolute -right-24 top-20 h-80 w-80 rounded-full bg-teal-100/50 blur-3xl" />
@@ -129,7 +253,6 @@ const HomeContent = () => {
       </div>
 
       <div className="relative mx-auto max-w-7xl space-y-8 p-6 pb-10 lg:p-8">
-        {/* Hero */}
         <section className="relative overflow-hidden rounded-2xl border border-white/60 bg-gradient-to-br from-primary via-[hsl(215,55%,28%)] to-accent p-6 text-white shadow-xl lg:p-8">
           <div className="absolute right-0 top-0 h-full w-1/3 opacity-10">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,white_0%,transparent_60%)]" />
@@ -142,15 +265,11 @@ const HomeContent = () => {
                 Portail EBOP — Gestion des Crédits Administratifs
               </div>
               <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">
-                {greeting}, {user?.nom ?? "Utilisateur"}
+                {user?.nom ?? "Utilisateur"}
               </h1>
               <p className="max-w-xl text-sm text-white/80 lg:text-base">
                 Pilotez vos engagements, règlements et budgets depuis un espace
-                unifié.{" "}
-                <span className="font-medium text-white">
-                  {user ? getRoleLabel(user.role) : "—"}
-                </span>{" "}
-                · Matricule {user?.matricule ?? "—"}
+                unifié.
               </p>
             </div>
 
@@ -162,9 +281,8 @@ const HomeContent = () => {
           </div>
         </section>
 
-        {/* Statistiques */}
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {STATS.map((stat) => (
+          {stats.map((stat) => (
             <Card
               key={stat.label}
               className="group border-0 bg-white/80 shadow-sm backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
@@ -192,7 +310,6 @@ const HomeContent = () => {
           ))}
         </section>
 
-        {/* Accès rapides */}
         <section>
           <div className="mb-4 flex items-end justify-between">
             <div>
@@ -206,7 +323,7 @@ const HomeContent = () => {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {QUICK_ACTIONS.map((action) => {
+            {quickActions.map((action) => {
               const card = (
                 <div
                   className={cn(
@@ -274,7 +391,6 @@ const HomeContent = () => {
           </div>
         </section>
 
-        {/* Bandeau statut */}
         <section className="flex flex-col items-center justify-between gap-4 rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-5 py-4 sm:flex-row">
           <div className="flex items-center gap-3">
             <span className="relative flex h-3 w-3">

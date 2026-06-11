@@ -23,10 +23,12 @@ import { PageHeader, PageShell } from "@/components/layout/PageShell";
 import { useToast } from "@/hooks/use-toast";
 import {
   createEngagement,
+  ensureUserProvince,
   getAdministrations,
   getBudgets,
   getFournisseurs,
   getLignesBudgetaires,
+  getNextEngagementNumero,
   getPostesComptables,
   getProvinces,
   getUnitesOperationnelles,
@@ -42,6 +44,7 @@ import {
 import { cn } from "@/lib/utils";
 
 type FormState = {
+  numero: string;
   titre: string;
   montant: string;
   date: string;
@@ -55,6 +58,7 @@ type FormState = {
 };
 
 const initialForm: FormState = {
+  numero: "",
   titre: "",
   montant: "",
   date: "",
@@ -124,10 +128,24 @@ export default function EngagementForm() {
   const [postes, setPostes] = useState<PosteComptableItem[]>([]);
   const [fournisseurs, setFournisseurs] = useState<FournisseurItem[]>([]);
 
+  const loadNextNumero = async (annee?: number) => {
+    try {
+      const numero = await getNextEngagementNumero(annee);
+      setForm((prev) => ({ ...prev, numero }));
+    } catch {
+      setForm((prev) => ({ ...prev, numero: "ENG-???-2026" }));
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
+        const currentUser = (await ensureUserProvince()) ?? getUserSession();
+        const defaultProvince = currentUser?.province_id
+          ? String(currentUser.province_id)
+          : "";
+
         const [
           provincesData,
           administrationsData,
@@ -136,6 +154,7 @@ export default function EngagementForm() {
           lignesData,
           postesData,
           fournisseursData,
+          nextNumero,
         ] = await Promise.all([
           getProvinces(),
           getAdministrations(),
@@ -144,6 +163,7 @@ export default function EngagementForm() {
           getLignesBudgetaires(),
           getPostesComptables(),
           getFournisseurs(),
+          getNextEngagementNumero(),
         ]);
         setProvinces(provincesData);
         setAdministrations(administrationsData);
@@ -152,6 +172,11 @@ export default function EngagementForm() {
         setLignes(lignesData);
         setPostes(postesData);
         setFournisseurs(fournisseursData);
+        setForm((prev) => ({
+          ...prev,
+          numero: nextNumero,
+          province: prev.province || defaultProvince,
+        }));
       } catch {
         toast({
           title: "Erreur",
@@ -192,12 +217,17 @@ export default function EngagementForm() {
     [budgets, form.uo]
   );
 
-  const filteredLignes = useMemo(
-    () =>
-      lignes.filter(
-        (l) => !form.budget || String(l.budget_id) === form.budget
-      ),
-    [lignes, form.budget]
+  const filteredLignes = useMemo(() => {
+    if (!form.budget) return [];
+    const budgetId = Number(form.budget);
+    return lignes.filter(
+      (l) => l.budget_id != null && Number(l.budget_id) === budgetId
+    );
+  }, [lignes, form.budget]);
+
+  const selectedBudget = useMemo(
+    () => budgets.find((b) => String(b.id) === form.budget),
+    [budgets, form.budget]
   );
 
   const setField = (name: keyof FormState, value: string) => {
@@ -224,7 +254,14 @@ export default function EngagementForm() {
     });
   };
 
-  const handleReset = () => setForm(initialForm);
+  const handleReset = async () => {
+    const currentUser = getUserSession();
+    const defaultProvince = currentUser?.province_id
+      ? String(currentUser.province_id)
+      : "";
+    setForm({ ...initialForm, province: defaultProvince });
+    await loadNextNumero();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -243,7 +280,8 @@ export default function EngagementForm() {
 
     try {
       await createEngagement({
-        numero: form.titre.trim(),
+        titre: form.titre.trim(),
+        numero: form.numero || undefined,
         montant: Number(form.montant),
         date: form.date,
         statut: "En attente",
@@ -261,9 +299,16 @@ export default function EngagementForm() {
 
       toast({
         title: "Engagement enregistré",
-        description: "Le dossier a été créé avec succès.",
+        description: `Dossier ${form.numero} créé avec succès.`,
       });
-      setForm(initialForm);
+      const currentUser = getUserSession();
+      const defaultProvince = currentUser?.province_id
+        ? String(currentUser.province_id)
+        : "";
+      setForm({ ...initialForm, province: defaultProvince });
+      await loadNextNumero(
+        form.date ? new Date(form.date).getFullYear() : undefined
+      );
     } catch (err) {
       toast({
         title: "Erreur",
@@ -319,7 +364,17 @@ export default function EngagementForm() {
             <section>
               <SectionHeader icon={FilePlus} title="Informations générales" />
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Titre" htmlFor="titre" className="sm:col-span-2">
+                <Field label="N° engagement" htmlFor="numero">
+                  <Input
+                    id="numero"
+                    name="numero"
+                    type="text"
+                    value={form.numero}
+                    readOnly
+                    className={cn(inputClass, "bg-slate-50 font-mono text-indigo-700")}
+                  />
+                </Field>
+                <Field label="Titre" htmlFor="titre">
                   <Input
                     id="titre"
                     name="titre"
@@ -327,7 +382,7 @@ export default function EngagementForm() {
                     value={form.titre}
                     onChange={(e) => setField("titre", e.target.value)}
                     className={inputClass}
-                    placeholder="Référence ou intitulé de l'engagement"
+                    placeholder="Intitulé de l'engagement"
                   />
                 </Field>
                 <Field label="Montant" htmlFor="montant">
@@ -349,7 +404,14 @@ export default function EngagementForm() {
                     name="date"
                     type="date"
                     value={form.date}
-                    onChange={(e) => setField("date", e.target.value)}
+                    onChange={(e) => {
+                      setField("date", e.target.value);
+                      if (e.target.value) {
+                        void loadNextNumero(
+                          new Date(e.target.value).getFullYear()
+                        );
+                      }
+                    }}
                     className={inputClass}
                   />
                 </Field>
@@ -420,7 +482,7 @@ export default function EngagementForm() {
                       : "Choisir une unité opérationnelle d'abord",
                     filteredBudgets.map((b) => ({
                       value: String(b.id),
-                      label: `${b.libelle} (${b.annee})`,
+                      label: `${b.libelle} (${b.annee}) — ${b.lignes_count} ligne(s)`,
                     })),
                     !form.uo
                   )}
@@ -429,7 +491,9 @@ export default function EngagementForm() {
                   {renderSelect(
                     "ligneBudgetaire",
                     form.budget
-                      ? "Sélectionner..."
+                      ? filteredLignes.length > 0
+                        ? "Sélectionner..."
+                        : "Aucune ligne pour ce budget"
                       : "Choisir un budget d'abord",
                     filteredLignes.map((l) => ({
                       value: String(l.id),
@@ -437,7 +501,13 @@ export default function EngagementForm() {
                         ? `${l.code} — ${l.libelle}`
                         : l.libelle,
                     })),
-                    !form.budget
+                    !form.budget || filteredLignes.length === 0
+                  )}
+                  {form.budget && filteredLignes.length === 0 && (
+                    <p className="text-xs text-amber-600">
+                      Le budget « {selectedBudget?.libelle ?? "sélectionné"} »
+                      ne contient aucune ligne budgétaire.
+                    </p>
                   )}
                 </Field>
                 <Field label="Poste comptable" htmlFor="posteComptable">

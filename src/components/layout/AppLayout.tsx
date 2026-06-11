@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronDown,
@@ -20,69 +20,18 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { clearUserSession, getUserSession } from "@/config/app";
+import {
+  clearUserSession,
+  ensureUserProvince,
+  getNavItemsForRole,
+  getUserSession,
+} from "@/config/app";
+import RoleGuard from "@/components/RoleGuard";
 import { cn } from "@/lib/utils";
 
-type NavChild = { label: string; to: string };
+import type { NavItemConfig } from "@/config/permissions";
 
-type NavSection = {
-  id: string;
-  label: string;
-  to: string;
-  match: (path: string) => boolean;
-  children?: NavChild[];
-  disabled?: boolean;
-};
-
-const NAV_SECTIONS: NavSection[] = [
-  {
-    id: "dashboard",
-    label: "Tableau de bord",
-    to: "/acceuil",
-    match: (path) => path === "/acceuil" || path === "/acceuil/",
-  },
-  {
-    id: "engagements",
-    label: "Engagements",
-    to: "/acceuil/engagements/viser",
-    match: (path) => path.startsWith("/acceuil/engagements"),
-    children: [
-      { label: "Consulter et viser", to: "/acceuil/engagements/viser" },
-      { label: "Autres consultations", to: "/acceuil/engagements/autres" },
-      { label: "Créer un engagement", to: "/acceuil/engagements/creation" },
-    ],
-  },
-  {
-    id: "collectivites",
-    label: "Collectivités",
-    to: "/acceuil/collectivites",
-    match: (path) => path.startsWith("/acceuil/collectivites"),
-    disabled: true,
-  },
-  {
-    id: "epp",
-    label: "Gestion des EPP",
-    to: "/acceuil/epp",
-    match: (path) => path.startsWith("/acceuil/epp"),
-    disabled: true,
-  },
-  {
-    id: "reglement",
-    label: "Règlement",
-    to: "/acceuil/reglement",
-    match: (path) => path.startsWith("/acceuil/reglement"),
-  },
-  {
-    id: "divers",
-    label: "Divers",
-    to: "/acceuil/divers/budget",
-    match: (path) => path.startsWith("/acceuil/divers"),
-    children: [
-      { label: "Consulter le budget", to: "/acceuil/divers/budget" },
-      { label: "Mise à jour des profils", to: "/acceuil/divers/profils" },
-    ],
-  },
-];
+type NavSection = NavItemConfig;
 
 function getInitials(name: string): string {
   return name
@@ -177,6 +126,15 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const user = getUserSession();
 
+  useEffect(() => {
+    void ensureUserProvince();
+  }, []);
+
+  const navSections = useMemo(
+    () => (user ? getNavItemsForRole(user.role) : []),
+    [user]
+  );
+
   const isProfileRoute = useMemo(
     () =>
       location.pathname.startsWith("/acceuil/profil") ||
@@ -199,7 +157,7 @@ export default function AppLayout() {
             </div>
 
             <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-              {NAV_SECTIONS.map((section) => (
+              {navSections.map((section) => (
                 <NavTab key={section.id} section={section} />
               ))}
             </nav>
@@ -250,7 +208,9 @@ export default function AppLayout() {
           isProfileRoute ? "bg-white" : "bg-slate-50/50"
         )}
       >
-        <Outlet />
+        <RoleGuard>
+          <Outlet />
+        </RoleGuard>
       </main>
 
       <footer className="flex justify-between border-t border-gray-200 bg-white px-6 py-3 text-xs text-gray-400">

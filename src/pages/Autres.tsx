@@ -7,6 +7,7 @@ import {
   MapPin,
   Printer,
   Search,
+  UserCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,10 +40,14 @@ import {
   getEngagements,
   getProvinces,
   getUnitesOperationnelles,
+  getUserSession,
+  getUsers,
+  isControleurBudgetaire,
   type AdministrationItem,
   type EngagementItem,
   type ProvinceItem,
   type UniteOperationnelleItem,
+  type UserListItem,
 } from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -70,6 +75,7 @@ const fmtDate = (d: string) => {
 
 export default function AutresEngagements() {
   const { toast } = useToast();
+  const user = getUserSession();
   const [loading, setLoading] = useState(true);
   const [engagements, setEngagements] = useState<EngagementItem[]>([]);
   const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
@@ -77,13 +83,17 @@ export default function AutresEngagements() {
     []
   );
   const [unites, setUnites] = useState<UniteOperationnelleItem[]>([]);
+  const [controleurs, setControleurs] = useState<UserListItem[]>([]);
 
   const [search, setSearch] = useState("");
-  const [filtreProvince, setFiltreProvince] = useState("tous");
+  const [filtreProvince, setFiltreProvince] = useState(
+    user?.province_id ? String(user.province_id) : "tous"
+  );
   const [filtreAdministration, setFiltreAdministration] = useState("tous");
   const [filtreUo, setFiltreUo] = useState("tous");
   const [filtreDate, setFiltreDate] = useState("");
   const [filtreStatut, setFiltreStatut] = useState("tous");
+  const [filtreControleur, setFiltreControleur] = useState("tous");
   const [selected, setSelected] = useState<EngagementItem | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -91,17 +101,28 @@ export default function AutresEngagements() {
     const load = async () => {
       setLoading(true);
       try {
-        const [engagementsData, provincesData, administrationsData, unitesData] =
-          await Promise.all([
-            getEngagements(),
-            getProvinces(),
-            getAdministrations(),
-            getUnitesOperationnelles(),
-          ]);
+        const [
+          engagementsData,
+          provincesData,
+          administrationsData,
+          unitesData,
+          usersData,
+        ] = await Promise.all([
+          getEngagements(),
+          getProvinces(),
+          getAdministrations(),
+          getUnitesOperationnelles(),
+          getUsers(),
+        ]);
         setEngagements(engagementsData);
         setProvinces(provincesData);
         setAdministrations(administrationsData);
         setUnites(unitesData);
+        setControleurs(
+          usersData.filter(
+            (u) => u.role && isControleurBudgetaire(u.role)
+          )
+        );
       } catch {
         toast({
           title: "Erreur",
@@ -124,6 +145,13 @@ export default function AutresEngagements() {
           ),
     [administrations, filtreProvince]
   );
+
+  const controleurOptions = useMemo(() => {
+    if (filtreProvince === "tous") return controleurs;
+    return controleurs.filter(
+      (c) => String(c.province_id) === filtreProvince
+    );
+  }, [controleurs, filtreProvince]);
 
   const uoOptions = useMemo(() => {
     if (filtreAdministration !== "tous") {
@@ -178,6 +206,14 @@ export default function AutresEngagements() {
         const matchDate = !filtreDate || item.date === filtreDate;
         const matchStatut =
           filtreStatut === "tous" || item.statut === filtreStatut;
+        const selectedControleur = controleurOptions.find(
+          (c) => String(c.id) === filtreControleur
+        );
+        const matchControleur =
+          filtreControleur === "tous" ||
+          String(item.user_id) === filtreControleur ||
+          (selectedControleur != null &&
+            item.demandeur === selectedControleur.nom);
 
         return (
           matchSearch &&
@@ -185,7 +221,8 @@ export default function AutresEngagements() {
           matchAdministration &&
           matchUo &&
           matchDate &&
-          matchStatut
+          matchStatut &&
+          matchControleur
         );
       }),
     [
@@ -196,12 +233,22 @@ export default function AutresEngagements() {
       filtreUo,
       filtreDate,
       filtreStatut,
+      filtreControleur,
+      controleurOptions,
     ]
   );
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filtreProvince, filtreAdministration, filtreUo, filtreDate, filtreStatut]);
+  }, [
+    search,
+    filtreProvince,
+    filtreAdministration,
+    filtreUo,
+    filtreDate,
+    filtreStatut,
+    filtreControleur,
+  ]);
 
   const totalPages = Math.max(
     1,
@@ -217,6 +264,7 @@ export default function AutresEngagements() {
     setFiltreProvince(value);
     setFiltreAdministration("tous");
     setFiltreUo("tous");
+    setFiltreControleur("tous");
   };
 
   const handleAdministrationChange = (value: string) => {
@@ -226,11 +274,12 @@ export default function AutresEngagements() {
 
   const resetFilters = () => {
     setSearch("");
-    setFiltreProvince("tous");
+    setFiltreProvince(user?.province_id ? String(user.province_id) : "tous");
     setFiltreAdministration("tous");
     setFiltreUo("tous");
     setFiltreDate("");
     setFiltreStatut("tous");
+    setFiltreControleur("tous");
   };
 
   const hasActiveFilters =
@@ -239,7 +288,8 @@ export default function AutresEngagements() {
     filtreAdministration !== "tous" ||
     filtreUo !== "tous" ||
     filtreDate !== "" ||
-    filtreStatut !== "tous";
+    filtreStatut !== "tous" ||
+    filtreControleur !== "tous";
 
   return (
     <PageShell>
@@ -252,7 +302,7 @@ export default function AutresEngagements() {
 
       <Card className="border-0 bg-white/80 shadow-sm backdrop-blur-sm">
         <CardContent className="p-5">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
             <div className="relative sm:col-span-2 lg:col-span-2 xl:col-span-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -329,6 +379,24 @@ export default function AutresEngagements() {
                 {statuts.map((s) => (
                   <SelectItem key={s} value={s}>
                     {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={filtreControleur}
+              onValueChange={setFiltreControleur}
+            >
+              <SelectTrigger className="h-11 border-gray-200 bg-white">
+                <UserCheck className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                <SelectValue placeholder="Contrôleur budgétaire" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tous">Tous les contrôleurs</SelectItem>
+                {controleurOptions.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.nom}
                   </SelectItem>
                 ))}
               </SelectContent>
