@@ -37,6 +37,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
+import { TablePagination } from "@/components/TablePagination";
+
+const PAGE_SIZE = 6;
 import {
   ROLE_OPTIONS,
   deleteUser,
@@ -64,6 +67,7 @@ export default function Utilisateurs() {
   const [editProvince, setEditProvince] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -109,6 +113,23 @@ export default function Utilisateurs() {
       }),
     [users, search]
   );
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
+
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredUsers.slice(start, start + PAGE_SIZE);
+  }, [filteredUsers, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const openEdit = (user: UserListItem) => {
     setEditing(user);
@@ -219,7 +240,7 @@ export default function Utilisateurs() {
 
       <Card className="border-0 bg-white/80 shadow-sm backdrop-blur-sm">
         <CardContent className="p-5">
-          <div className="relative max-w-md">
+          <div className="relative max-w-xs">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Rechercher par nom, matricule, rôle..."
@@ -277,7 +298,7 @@ export default function Utilisateurs() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredUsers.map((user) => (
+                paginatedUsers.map((user) => (
                   <TableRow
                     key={user.id}
                     className="transition-colors hover:bg-indigo-50/30"
@@ -338,6 +359,16 @@ export default function Utilisateurs() {
             </TableBody>
           </Table>
         </div>
+
+        {!loading && filteredUsers.length > 0 && (
+          <TablePagination
+            currentPage={currentPage}
+            pageSize={PAGE_SIZE}
+            totalItems={filteredUsers.length}
+            onPageChange={setCurrentPage}
+            itemLabel="utilisateur"
+          />
+        )}
       </Card>
 
       {!loading && users.length === 0 && (

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   Download,
+  Eye,
   FileCheck,
   Search,
   Wallet,
@@ -10,7 +11,17 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -27,6 +38,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
+import { TablePagination } from "@/components/TablePagination";
+
+const PAGE_SIZE = 6;
 import {
   canVisaEngagements,
   ensureUserProvince,
@@ -83,7 +97,12 @@ const fmtDate = (d: string) => {
 function normalizeStatut(statut: string): VisaStatut {
   if (statut === "Visé" || statut === "Validé") return "Visé";
   if (statut === "Rejeté") return "Rejeté";
+  if (statut === "Réglé") return "Visé";
   return "En attente";
+}
+
+function isRegle(statut: string): boolean {
+  return statut === "Réglé";
 }
 
 export default function VisaEngagements() {
@@ -99,6 +118,14 @@ export default function VisaEngagements() {
   const [exporting, setExporting] = useState(false);
   const [budgetDisponible, setBudgetDisponible] = useState<number | null>(null);
   const [provinceNom, setProvinceNom] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{
+    id: number;
+    status: "Visé" | "Rejeté";
+    row: EngagementItem;
+  } | null>(null);
+  const [motifRejet, setMotifRejet] = useState("");
+  const [detailRow, setDetailRow] = useState<EngagementItem | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const loadEngagements = useCallback(async () => {
     setLoading(true);
@@ -111,11 +138,16 @@ export default function VisaEngagements() {
         getEngagements(),
         getBudgetConsultation(),
       ]);
-      setData(items);
+      setData(items.filter((item) => !isRegle(item.statut)));
 
-      const lignes = filterByUserProvince(budgetData.lignes, provinceId);
+      const budgets = filterByUserProvince(budgetData.budgets, provinceId);
       setBudgetDisponible(
-        lignes.reduce((sum, l) => sum + l.montant_disponible, 0)
+        budgets.length > 0
+          ? budgets.reduce((sum, b) => sum + b.montant, 0)
+          : filterByUserProvince(budgetData.lignes, provinceId).reduce(
+              (sum, l) => sum + l.montant_alloue,
+              0
+            )
       );
     } catch {
       toast({
@@ -135,9 +167,12 @@ export default function VisaEngagements() {
 
   const stats = useMemo(
     () => ({
-      pending: data.filter((r) => normalizeStatut(r.statut) === "En attente")
-        .length,
-      vised: data.filter((r) => normalizeStatut(r.statut) === "Visé").length,
+      pending: data.filter(
+        (r) => !isRegle(r.statut) && normalizeStatut(r.statut) === "En attente"
+      ).length,
+      vised: data.filter(
+        (r) => !isRegle(r.statut) && normalizeStatut(r.statut) === "Visé"
+      ).length,
       rejected: data.filter((r) => normalizeStatut(r.statut) === "Rejeté")
         .length,
     }),
@@ -148,6 +183,8 @@ export default function VisaEngagements() {
     const query = search.trim().toLowerCase();
 
     return data.filter((row) => {
+      if (isRegle(row.statut)) return false;
+
       const statut = normalizeStatut(row.statut);
       const matchStatut =
         filtreStatut === "tous" || statut === filtreStatut;
@@ -174,11 +211,28 @@ export default function VisaEngagements() {
     });
   }, [data, filtreStatut, search]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+
+  const paginatedRows = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredRows.slice(start, start + PAGE_SIZE);
+  }, [filteredRows, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filtreStatut]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const filtreLabel =
     STATUT_OPTIONS.find((o) => o.value === filtreStatut)?.label ??
     filtreStatut;
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (filteredRows.length === 0) {
       toast({
         title: "Aucune donnée",
@@ -191,13 +245,13 @@ export default function VisaEngagements() {
     setExporting(true);
     try {
       const user = getUserSession();
-      exportEngagementsPdf({
+      await exportEngagementsPdf({
         title: "Registre des engagements budgétaires",
         subtitle: "Visa des engagements — DGCPT",
         filtreStatut: filtreLabel,
         exportedBy: user?.nom,
         rows: filteredRows.map((row) =>
-          buildExportRow(row, fmt, fmtDate, (s) => normalizeStatut(s))
+          buildExportRow(row, fmtDate, (s) => normalizeStatut(s))
         ),
       });
       toast({
@@ -215,25 +269,54 @@ export default function VisaEngagements() {
     }
   };
 
-  const handleAction = async (id: number, newStatus: "Visé" | "Rejeté") => {
-    const msg =
-      newStatus === "Visé"
-        ? "Confirmer le visa ?"
-        : "Motif du rejet obligatoire :";
-    if (!window.confirm(msg)) return;
+  const openActionDialog = (
+    id: number,
+    newStatus: "Visé" | "Rejeté",
+    row: EngagementItem
+  ) => {
+    setMotifRejet("");
+    setPendingAction({ id, status: newStatus, row });
+  };
+
+  const closeActionDialog = () => {
+    if (updatingId !== null) return;
+    setPendingAction(null);
+    setMotifRejet("");
+  };
+
+  const confirmAction = async () => {
+    if (!pendingAction) return;
+
+    const { id, status, row } = pendingAction;
+
+    if (status === "Rejeté" && !motifRejet.trim()) {
+      toast({
+        title: "Motif requis",
+        description: "Veuillez indiquer un motif de rejet.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setUpdatingId(id);
     try {
-      await updateEngagement(id, { statut: newStatus });
+      await updateEngagement(
+        id,
+        status === "Rejeté"
+          ? { statut: status, motif_rejet: motifRejet.trim() }
+          : { statut: status }
+      );
       setData((prev) =>
         prev.map((item) =>
-          item.id === id ? { ...item, statut: newStatus } : item
+          item.id === id ? { ...item, statut: status } : item
         )
       );
       toast({
-        title: newStatus === "Visé" ? "Engagement visé" : "Engagement rejeté",
+        title: status === "Visé" ? "Engagement visé" : "Engagement rejeté",
         description: "Le statut a été mis à jour.",
       });
+      setPendingAction(null);
+      setMotifRejet("");
     } catch (err) {
       toast({
         title: "Erreur",
@@ -247,6 +330,46 @@ export default function VisaEngagements() {
       setUpdatingId(null);
     }
   };
+
+  const pendingLabel =
+    pendingAction?.row.objet ??
+    pendingAction?.row.titre ??
+    pendingAction?.row.ligne_budgetaire_libelle ??
+    "—";
+
+  type DetailField = {
+    label: string;
+    value?: string | null;
+    highlight?: boolean;
+    full?: boolean;
+  };
+
+  const detailFields = (row: EngagementItem): DetailField[] => [
+    { label: "Référence", value: row.numero },
+    { label: "Titre", value: row.titre ?? row.objet },
+    { label: "Date", value: fmtDate(row.date) },
+    { label: "Montant", value: fmt(row.montant), highlight: true },
+    { label: "Statut", value: normalizeStatut(row.statut) },
+    { label: "Demandeur", value: row.demandeur },
+    { label: "Fournisseur", value: row.fournisseur },
+    { label: "Province", value: row.province_nom },
+    { label: "Administration", value: row.administration_nom },
+    { label: "Unité opérationnelle", value: row.unite_operationnelle_nom },
+    { label: "Ligne budgétaire", value: row.ligne_budgetaire_libelle },
+    { label: "Poste comptable", value: row.poste_comptable_libelle },
+    ...(normalizeStatut(row.statut) === "Visé"
+      ? [
+          { label: "Visé par", value: row.vise_par },
+          {
+            label: "Date de visa",
+            value: row.date_visa ? fmtDate(row.date_visa.slice(0, 10)) : null,
+          },
+        ]
+      : []),
+    ...(normalizeStatut(row.statut) === "Rejeté"
+      ? [{ label: "Motif du rejet", value: row.motif_rejet, full: true }]
+      : []),
+  ];
 
   return (
     <PageShell>
@@ -266,7 +389,7 @@ export default function VisaEngagements() {
         action={
           <div className="rounded-xl bg-white/10 px-5 py-3 text-right backdrop-blur-sm ring-1 ring-white/20">
             <p className="text-xs font-medium uppercase tracking-wide text-white/70">
-              Budget disponible
+              Enveloppe budgétaire
               {provinceNom ? ` · ${provinceNom}` : ""}
             </p>
             <p className="text-lg font-bold text-emerald-300">
@@ -359,7 +482,7 @@ export default function VisaEngagements() {
                   "Objet",
                   "Montant",
                   "Statut",
-                  ...(peutViser ? ["Actions"] : []),
+                  "Actions",
                 ].map((h) => (
                   <TableHead
                     key={h}
@@ -374,7 +497,7 @@ export default function VisaEngagements() {
               {loading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={peutViser ? 7 : 6}
+                    colSpan={7}
                     className="h-32 text-center text-muted-foreground"
                   >
                     Chargement...
@@ -383,14 +506,14 @@ export default function VisaEngagements() {
               ) : filteredRows.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={peutViser ? 7 : 6}
+                    colSpan={7}
                     className="h-32 text-center text-muted-foreground"
                   >
                     Aucun dossier trouvé pour ce filtre
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredRows.map((row) => {
+                paginatedRows.map((row) => {
                   const statut = normalizeStatut(row.statut);
                   const canAct = peutViser && statut === "En attente";
 
@@ -425,10 +548,22 @@ export default function VisaEngagements() {
                           {statut}
                         </Badge>
                       </TableCell>
-                      {peutViser && (
-                        <TableCell>
-                          {canAct ? (
-                            <div className="flex gap-1.5">
+                      <TableCell>
+                        <div className="flex gap-1.5">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDetailRow(row);
+                            }}
+                            title="Voir le détail"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {canAct && (
+                            <>
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -436,7 +571,7 @@ export default function VisaEngagements() {
                                 disabled={updatingId === row.id}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleAction(row.id, "Visé");
+                                  openActionDialog(row.id, "Visé", row);
                                 }}
                                 title="Viser"
                               >
@@ -449,20 +584,16 @@ export default function VisaEngagements() {
                                 disabled={updatingId === row.id}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleAction(row.id, "Rejeté");
+                                  openActionDialog(row.id, "Rejeté", row);
                                 }}
                                 title="Rejeter"
                               >
                                 <X className="h-4 w-4" />
                               </Button>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              —
-                            </span>
+                            </>
                           )}
-                        </TableCell>
-                      )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   );
                 })
@@ -470,7 +601,143 @@ export default function VisaEngagements() {
             </TableBody>
           </Table>
         </div>
+
+        {!loading && filteredRows.length > 0 && (
+          <TablePagination
+            currentPage={currentPage}
+            pageSize={PAGE_SIZE}
+            totalItems={filteredRows.length}
+            onPageChange={setCurrentPage}
+            itemLabel="dossier"
+          />
+        )}
       </Card>
+
+      <Dialog
+        open={detailRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailRow(null);
+        }}
+      >
+        <DialogContent className="max-w-lg border border-gray-200 bg-white shadow-xl">
+          <DialogHeader>
+            <DialogTitle>Détail de l&apos;engagement</DialogTitle>
+            <DialogDescription>
+              Informations complètes du dossier sélectionné.
+            </DialogDescription>
+          </DialogHeader>
+
+          {detailRow && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {detailFields(detailRow).map((field) => (
+                <div
+                  key={field.label}
+                  className={cn(
+                    "rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5",
+                    field.full && "sm:col-span-2"
+                  )}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {field.label}
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-1 text-sm text-gray-900",
+                      field.highlight && "font-bold text-indigo-600",
+                      field.full && "whitespace-pre-wrap"
+                    )}
+                  >
+                    {field.value?.toString().trim() || "—"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailRow(null)}>
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={pendingAction !== null}
+        onOpenChange={(open) => {
+          if (!open) closeActionDialog();
+        }}
+      >
+        <DialogContent className="max-w-md border border-gray-200 bg-white shadow-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {pendingAction?.status === "Visé"
+                ? "Confirmer le visa"
+                : "Rejeter l'engagement"}
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 pt-2 text-left text-gray-600">
+                <p>
+                  {pendingAction?.status === "Visé"
+                    ? "Voulez-vous viser cet engagement ?"
+                    : "Indiquez le motif du rejet pour cet engagement."}
+                </p>
+                {pendingAction && (
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3 text-sm">
+                    <p className="font-semibold text-gray-900">
+                      {pendingAction.row.numero}
+                    </p>
+                    <p className="mt-1 text-gray-700">{pendingLabel}</p>
+                    <p className="mt-2 font-medium text-indigo-600">
+                      {fmt(pendingAction.row.montant)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          {pendingAction?.status === "Rejeté" && (
+            <div className="space-y-2">
+              <Label
+                htmlFor="motif-rejet"
+                className="text-xs font-semibold uppercase tracking-wide text-primary/80"
+              >
+                Motif du rejet *
+              </Label>
+              <Textarea
+                id="motif-rejet"
+                value={motifRejet}
+                onChange={(e) => setMotifRejet(e.target.value)}
+                placeholder="Saisissez le motif du rejet..."
+                className="min-h-[100px] resize-none border-gray-200 bg-white"
+              />
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={closeActionDialog}
+              disabled={updatingId !== null}
+            >
+              Annuler
+            </Button>
+            <Button
+              variant={pendingAction?.status === "Rejeté" ? "destructive" : "institution"}
+              onClick={confirmAction}
+              disabled={updatingId !== null}
+              className="gap-2"
+            >
+              {updatingId !== null
+                ? "Traitement..."
+                : pendingAction?.status === "Visé"
+                  ? "Confirmer le visa"
+                  : "Confirmer le rejet"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }

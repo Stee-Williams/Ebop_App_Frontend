@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
+  Building2,
   Calendar,
   Eye,
   Layers,
   MapPin,
+  Network,
   PiggyBank,
   Search,
   TrendingUp,
@@ -37,13 +39,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
+import { TablePagination } from "@/components/TablePagination";
 import {
+  getAdministrations,
   getBudgetConsultation,
+  getProvinces,
+  getUnitesOperationnelles,
+  type AdministrationItem,
   type BudgetItem,
   type LigneBudgetaireItem,
+  type ProvinceItem,
+  type UniteOperationnelleItem,
 } from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
+import { cn, computeTauxUtilisation, formatTauxPercent } from "@/lib/utils";
+
+const PAGE_SIZE = 6;
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("fr-FR", {
@@ -69,28 +80,46 @@ export default function BudgetConsultation() {
   const [loading, setLoading] = useState(true);
   const [budgets, setBudgets] = useState<BudgetItem[]>([]);
   const [lignes, setLignes] = useState<LigneBudgetaireItem[]>([]);
+  const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
+  const [administrations, setAdministrations] = useState<AdministrationItem[]>(
+    []
+  );
+  const [unites, setUnites] = useState<UniteOperationnelleItem[]>([]);
   const [stats, setStats] = useState({
     total_alloue: 0,
     total_utilise: 0,
     total_disponible: 0,
+    total_decaisse: 0,
     taux_global: 0,
     nombre_lignes: 0,
     nombre_budgets: 0,
   });
   const [search, setSearch] = useState("");
   const [filtreProvince, setFiltreProvince] = useState("tous");
+  const [filtreAdministration, setFiltreAdministration] = useState("tous");
+  const [filtreUo, setFiltreUo] = useState("tous");
+  const [filtreLigne, setFiltreLigne] = useState("tous");
   const [filtreAnnee, setFiltreAnnee] = useState("tous");
-  const [filtreBudget, setFiltreBudget] = useState("tous");
   const [selected, setSelected] = useState<LigneBudgetaireItem | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const data = await getBudgetConsultation();
+        const [data, provincesData, administrationsData, unitesData] =
+          await Promise.all([
+            getBudgetConsultation(),
+            getProvinces(),
+            getAdministrations(),
+            getUnitesOperationnelles(),
+          ]);
         setBudgets(data.budgets);
         setLignes(data.lignes);
         setStats(data.stats);
+        setProvinces(provincesData);
+        setAdministrations(administrationsData);
+        setUnites(unitesData);
       } catch {
         toast({
           title: "Erreur",
@@ -104,107 +133,256 @@ export default function BudgetConsultation() {
     load();
   }, [toast]);
 
-  const provinces = useMemo(() => {
-    const map = new Map<number, string>();
-    budgets.forEach((b) => {
-      if (b.province_id && b.province_nom) {
-        map.set(b.province_id, b.province_nom);
-      }
-    });
-    return [...map.entries()]
-      .map(([id, nom]) => ({ id, nom }))
-      .sort((a, b) => a.nom.localeCompare(b.nom));
-  }, [budgets]);
-
-  const filteredBudgets = useMemo(
-    () =>
-      budgets.filter((b) => {
-        const matchProvince =
-          filtreProvince === "tous" ||
-          String(b.province_id) === filtreProvince;
-        const matchAnnee =
-          filtreAnnee === "tous" || String(b.annee) === filtreAnnee;
-        return matchProvince && matchAnnee;
-      }),
-    [budgets, filtreProvince, filtreAnnee]
-  );
-
   const annees = useMemo(
-    () =>
-      [...new Set(budgets.map((b) => b.annee))].sort((a, b) => b - a),
+    () => [...new Set(budgets.map((b) => b.annee))].sort((a, b) => b - a),
     [budgets]
   );
+
+  const administrationOptions = useMemo(
+    () =>
+      filtreProvince === "tous"
+        ? administrations
+        : administrations.filter(
+            (a) => String(a.province_id) === filtreProvince
+          ),
+    [administrations, filtreProvince]
+  );
+
+  const uoOptions = useMemo(() => {
+    if (filtreAdministration !== "tous") {
+      return unites.filter(
+        (u) => String(u.administration_id) === filtreAdministration
+      );
+    }
+    if (filtreProvince !== "tous") {
+      const adminIds = new Set(administrationOptions.map((a) => String(a.id)));
+      return unites.filter((u) => adminIds.has(String(u.administration_id)));
+    }
+    return unites;
+  }, [unites, filtreAdministration, filtreProvince, administrationOptions]);
+
+  const ligneOptions = useMemo(() => {
+    return lignes.filter((l) => {
+      const matchProvince =
+        filtreProvince === "tous" ||
+        String(l.province_id) === filtreProvince;
+      const matchAdministration =
+        filtreAdministration === "tous" ||
+        String(l.administration_id) === filtreAdministration;
+      const matchUo =
+        filtreUo === "tous" ||
+        String(l.unite_operationnelle_id) === filtreUo;
+      const matchAnnee =
+        filtreAnnee === "tous" || String(l.annee) === filtreAnnee;
+      return matchProvince && matchAdministration && matchUo && matchAnnee;
+    });
+  }, [lignes, filtreProvince, filtreAdministration, filtreUo, filtreAnnee]);
 
   const filteredLignes = useMemo(
     () =>
       lignes.filter((l) => {
-        const matchSearch = [l.code, l.libelle, l.budget_libelle, l.province_nom]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(search.toLowerCase());
+        const query = search.trim().toLowerCase();
+        const matchSearch =
+          !query ||
+          [
+            l.code,
+            l.libelle,
+            l.budget_libelle,
+            l.province_nom,
+            l.administration_nom,
+            l.unite_operationnelle_nom,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(query);
         const matchProvince =
           filtreProvince === "tous" ||
           String(l.province_id) === filtreProvince;
+        const matchAdministration =
+          filtreAdministration === "tous" ||
+          String(l.administration_id) === filtreAdministration;
+        const matchUo =
+          filtreUo === "tous" ||
+          String(l.unite_operationnelle_id) === filtreUo;
+        const matchLigne =
+          filtreLigne === "tous" || String(l.id) === filtreLigne;
         const matchAnnee =
           filtreAnnee === "tous" || String(l.annee) === filtreAnnee;
-        const matchBudget =
-          filtreBudget === "tous" || String(l.budget_id) === filtreBudget;
-        return matchSearch && matchProvince && matchAnnee && matchBudget;
+        return (
+          matchSearch &&
+          matchProvince &&
+          matchAdministration &&
+          matchUo &&
+          matchLigne &&
+          matchAnnee
+        );
       }),
-    [lignes, search, filtreProvince, filtreAnnee, filtreBudget]
+    [
+      lignes,
+      search,
+      filtreProvince,
+      filtreAdministration,
+      filtreUo,
+      filtreLigne,
+      filtreAnnee,
+    ]
   );
+
+  const filteredBudgets = useMemo(() => {
+    const budgetIdsFromLignes = new Set(
+      filteredLignes.map((l) => l.budget_id).filter(Boolean)
+    );
+
+    return budgets.filter((b) => {
+      const matchProvince =
+        filtreProvince === "tous" ||
+        String(b.province_id) === filtreProvince;
+      const matchAdministration =
+        filtreAdministration === "tous" ||
+        String(b.administration_id) === filtreAdministration;
+      const matchUo =
+        filtreUo === "tous" ||
+        String(b.unite_operationnelle_id) === filtreUo;
+      const matchAnnee =
+        filtreAnnee === "tous" || String(b.annee) === filtreAnnee;
+      const matchLigneScope =
+        filtreLigne === "tous" || budgetIdsFromLignes.has(b.id);
+
+      return (
+        matchProvince &&
+        matchAdministration &&
+        matchUo &&
+        matchAnnee &&
+        matchLigneScope
+      );
+    });
+  }, [
+    budgets,
+    filteredLignes,
+    filtreProvince,
+    filtreAdministration,
+    filtreUo,
+    filtreLigne,
+    filtreAnnee,
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLignes.length / PAGE_SIZE));
+
+  const paginatedLignes = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredLignes.slice(start, start + PAGE_SIZE);
+  }, [filteredLignes, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    search,
+    filtreProvince,
+    filtreAdministration,
+    filtreUo,
+    filtreLigne,
+    filtreAnnee,
+  ]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const filteredStats = useMemo(() => {
     const totalAlloue = filteredLignes.reduce(
       (s, l) => s + l.montant_alloue,
       0
     );
-    const totalUtilise = filteredLignes.reduce(
+    const totalConsomme = filteredLignes.reduce(
       (s, l) => s + l.montant_utilise,
       0
     );
+    const totalEnveloppeUo = filteredBudgets.reduce((s, b) => s + b.montant, 0);
     return {
       total_alloue: totalAlloue,
-      total_utilise: totalUtilise,
-      total_disponible: totalAlloue - totalUtilise,
-      taux_global:
-        totalAlloue > 0
-          ? Math.round((totalUtilise / totalAlloue) * 1000) / 10
-          : 0,
+      total_utilise: totalConsomme,
+      total_disponible: Math.max(0, totalAlloue - totalConsomme),
+      total_decaisse: totalConsomme,
+      total_enveloppe_uo: totalEnveloppeUo,
+      taux_global: computeTauxUtilisation(totalConsomme, totalAlloue),
+      nombre_lignes: filteredLignes.length,
+      nombre_budgets: filteredBudgets.length,
     };
-  }, [filteredLignes]);
+  }, [filteredLignes, filteredBudgets]);
+
+  const globalEnveloppeUo = useMemo(
+    () => budgets.reduce((s, b) => s + b.montant, 0),
+    [budgets]
+  );
 
   const hasActiveFilters =
     filtreProvince !== "tous" ||
+    filtreAdministration !== "tous" ||
+    filtreUo !== "tous" ||
+    filtreLigne !== "tous" ||
     filtreAnnee !== "tous" ||
-    filtreBudget !== "tous" ||
     search.trim() !== "";
 
-  const displayStats = hasActiveFilters ? filteredStats : stats;
+  const handleProvinceChange = (value: string) => {
+    setFiltreProvince(value);
+    setFiltreAdministration("tous");
+    setFiltreUo("tous");
+    setFiltreLigne("tous");
+  };
+
+  const handleAdministrationChange = (value: string) => {
+    setFiltreAdministration(value);
+    setFiltreUo("tous");
+    setFiltreLigne("tous");
+  };
+
+  const handleUoChange = (value: string) => {
+    setFiltreUo(value);
+    setFiltreLigne("tous");
+  };
 
   const statCards = [
     {
-      label: "Montant alloué",
-      value: fmt(displayStats.total_alloue),
+      label: "Enveloppe UO restante",
+      hint: "Somme des enveloppes budgétaires UO encore disponibles. Diminue à chaque règlement.",
+      value: fmt(
+        hasActiveFilters
+          ? filteredStats.total_enveloppe_uo
+          : globalEnveloppeUo
+      ),
+      icon: Layers,
+      gradient: "from-sky-500 to-blue-600",
+      small: true,
+    },
+    {
+      label: "Montant alloué (lignes)",
+      hint: "Total réparti sur les lignes budgétaires. Ne diminue pas au règlement.",
+      value: fmt(hasActiveFilters ? filteredStats.total_alloue : stats.total_alloue),
       icon: Wallet,
       gradient: "from-indigo-500 to-blue-600",
     },
     {
-      label: "Montant utilisé",
-      value: fmt(displayStats.total_utilise),
+      label: "Utilisé / décaissé",
+      value: fmt(hasActiveFilters ? filteredStats.total_utilise : stats.total_utilise),
       icon: TrendingUp,
       gradient: "from-amber-500 to-orange-500",
     },
     {
       label: "Disponible",
-      value: fmt(displayStats.total_disponible),
+      value: fmt(
+        hasActiveFilters ? filteredStats.total_disponible : stats.total_disponible
+      ),
       icon: PiggyBank,
       gradient: "from-emerald-500 to-teal-600",
     },
     {
       label: "Taux d'utilisation",
-      value: `${displayStats.taux_global}%`,
+      value: formatTauxPercent(
+        hasActiveFilters ? filteredStats.taux_global : stats.taux_global
+      ),
       icon: BarChart3,
       gradient: "from-violet-500 to-purple-600",
       small: true,
@@ -216,17 +394,25 @@ export default function BudgetConsultation() {
       <PageHeader
         icon={<BarChart3 className="h-6 w-6 text-white" />}
         title="Consultation du budget"
-        description="Visualisez les budgets, lignes budgétaires et leur taux d'utilisation."
-        badge="Module Divers"
+        description="Vue d'ensemble du budget global — filtrez par province, administration, unité opérationnelle et ligne budgétaire."
+        badge="Module Budget"
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {!loading && (
+        <p className="-mt-2 text-sm text-muted-foreground">
+          {hasActiveFilters
+            ? `${filteredStats.nombre_budgets} budget${filteredStats.nombre_budgets !== 1 ? "s" : ""} · ${filteredStats.nombre_lignes} ligne${filteredStats.nombre_lignes !== 1 ? "s" : ""} (filtres actifs)`
+            : `${stats.nombre_budgets} budget${stats.nombre_budgets !== 1 ? "s" : ""} · ${stats.nombre_lignes} ligne${stats.nombre_lignes !== 1 ? "s" : ""} au total`}
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {statCards.map((stat) => (
           <Card
             key={stat.label}
             className="group border-0 bg-white/80 shadow-sm backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
           >
-            <CardContent className="p-5">
+            <CardContent className="p-4">
               <div
                 className={cn(
                   "inline-flex rounded-xl bg-gradient-to-br p-2.5 text-white shadow-sm",
@@ -237,13 +423,16 @@ export default function BudgetConsultation() {
               </div>
               <p
                 className={cn(
-                  "mt-4 font-bold tracking-tight text-gray-900",
-                  stat.small ? "text-lg" : "text-xl"
+                  "mt-3 font-bold tracking-tight text-gray-900",
+                  stat.small ? "text-base lg:text-lg" : "text-lg lg:text-xl"
                 )}
               >
                 {loading ? "—" : stat.value}
               </p>
-              <p className="mt-0.5 text-sm font-medium text-gray-700">
+              <p
+                className="mt-0.5 text-xs font-medium text-gray-700 lg:text-sm"
+                title={"hint" in stat ? stat.hint : undefined}
+              >
                 {stat.label}
               </p>
             </CardContent>
@@ -251,106 +440,157 @@ export default function BudgetConsultation() {
         ))}
       </div>
 
-      {filteredBudgets.length > 0 && (
-        <div>
-          <p className="mb-3 text-sm text-muted-foreground">
-            {`${filteredBudgets.length} budget${filteredBudgets.length !== 1 ? "s" : ""} affiché${filteredBudgets.length !== 1 ? "s" : ""}`}
-            {filtreProvince !== "tous" &&
-              ` · ${provinces.find((p) => String(p.id) === filtreProvince)?.nom}`}
-          </p>
-          <div className="flex gap-3 overflow-x-auto pb-2">
-          {filteredBudgets.slice(0, 8).map((budget) => (
-            <Card
-              key={budget.id}
-              className="min-w-[260px] shrink-0 border-0 bg-white/80 shadow-sm backdrop-blur-sm transition-all hover:shadow-md"
-            >
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <Badge variant="outline" className="mb-2">
-                      {budget.annee}
-                    </Badge>
-                    <p className="font-semibold text-gray-900">
-                      {budget.libelle}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {budget.province_nom ?? "—"} ·{" "}
-                      {budget.unite_operationnelle ?? "—"} ·{" "}
-                      {budget.lignes_count} ligne
-                      {budget.lignes_count !== 1 ? "s" : ""}
-                    </p>
-                  </div>
-                  <Layers className="h-5 w-5 text-indigo-300" />
-                </div>
-                <p className="mt-3 text-lg font-bold text-indigo-700">
-                  {fmt(budget.montant)}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-          </div>
-        </div>
-      )}
-
       <Card className="border-0 bg-white/80 shadow-sm backdrop-blur-sm">
-        <CardContent className="p-5">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="relative sm:col-span-2 lg:col-span-2">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex flex-col gap-3">
+            <div className="relative min-w-0">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Rechercher par code, libellé..."
+                placeholder="Code, libellé, UO…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-11 border-gray-200 bg-white pl-10"
+                className="h-10 border-gray-200 bg-white pl-10"
               />
             </div>
-            <Select
-              value={filtreProvince}
-              onValueChange={(v) => {
-                setFiltreProvince(v);
-                setFiltreBudget("tous");
-              }}
-            >
-              <SelectTrigger className="h-11 border-gray-200 bg-white">
-                <MapPin className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
-                <SelectValue placeholder="Province" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tous">Toutes les provinces</SelectItem>
-                {provinces.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.nom}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filtreAnnee} onValueChange={setFiltreAnnee}>
-              <SelectTrigger className="h-11 border-gray-200 bg-white">
-                <Calendar className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
-                <SelectValue placeholder="Année" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tous">Toutes les années</SelectItem>
-                {annees.map((a) => (
-                  <SelectItem key={a} value={String(a)}>
-                    {a}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filtreBudget} onValueChange={setFiltreBudget}>
-              <SelectTrigger className="h-11 border-gray-200 bg-white">
-                <SelectValue placeholder="Budget" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tous">Tous les budgets</SelectItem>
-                {filteredBudgets.map((b) => (
-                  <SelectItem key={b.id} value={String(b.id)}>
-                    {b.libelle} ({b.annee})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <div className="min-w-0">
+                <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                  Province
+                </p>
+                <Select value={filtreProvince} onValueChange={handleProvinceChange}>
+                  <SelectTrigger
+                    className="h-10 min-w-0 border-gray-200 bg-white [&>span]:min-w-0 [&>span]:truncate"
+                    title={
+                      filtreProvince === "tous"
+                        ? undefined
+                        : provinces.find((p) => String(p.id) === filtreProvince)
+                            ?.nom
+                    }
+                  >
+                    <MapPin className="mr-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Toutes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tous">Toutes</SelectItem>
+                    {provinces.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.nom}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0">
+                <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                  Administration
+                </p>
+                <Select
+                  value={filtreAdministration}
+                  onValueChange={handleAdministrationChange}
+                >
+                  <SelectTrigger
+                    className="h-10 min-w-0 border-gray-200 bg-white [&>span]:min-w-0 [&>span]:truncate"
+                    title={
+                      filtreAdministration === "tous"
+                        ? undefined
+                        : administrationOptions.find(
+                            (a) => String(a.id) === filtreAdministration
+                          )?.nom
+                    }
+                  >
+                    <Building2 className="mr-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Toutes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tous">Toutes</SelectItem>
+                    {administrationOptions.map((a) => (
+                      <SelectItem key={a.id} value={String(a.id)}>
+                        {a.nom}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0">
+                <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                  Unité opérationnelle
+                </p>
+                <Select value={filtreUo} onValueChange={handleUoChange}>
+                  <SelectTrigger
+                    className="h-10 min-w-0 border-gray-200 bg-white [&>span]:min-w-0 [&>span]:truncate"
+                    title={
+                      filtreUo === "tous"
+                        ? undefined
+                        : uoOptions.find((u) => String(u.id) === filtreUo)?.nom
+                    }
+                  >
+                    <Network className="mr-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Toutes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tous">Toutes</SelectItem>
+                    {uoOptions.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>
+                        {u.nom}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0">
+                <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                  Ligne budgétaire
+                </p>
+                <Select value={filtreLigne} onValueChange={setFiltreLigne}>
+                  <SelectTrigger
+                    className="h-10 min-w-0 border-gray-200 bg-white [&>span]:min-w-0 [&>span]:truncate"
+                    title={
+                      filtreLigne === "tous"
+                        ? undefined
+                        : (() => {
+                            const l = ligneOptions.find(
+                              (x) => String(x.id) === filtreLigne
+                            );
+                            return l
+                              ? `${l.code ? `${l.code} — ` : ""}${l.libelle}`
+                              : undefined;
+                          })()
+                    }
+                  >
+                    <Layers className="mr-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Toutes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tous">Toutes</SelectItem>
+                    {ligneOptions.map((l) => (
+                      <SelectItem key={l.id} value={String(l.id)}>
+                        {l.code ? `${l.code} — ` : ""}
+                        {l.libelle}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0">
+                <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                  Année
+                </p>
+                <Select value={filtreAnnee} onValueChange={setFiltreAnnee}>
+                  <SelectTrigger className="h-10 min-w-0 border-gray-200 bg-white [&>span]:min-w-0 [&>span]:truncate">
+                    <Calendar className="mr-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Toutes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tous">Toutes</SelectItem>
+                    {annees.map((a) => (
+                      <SelectItem key={a} value={String(a)}>
+                        {a}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -373,8 +613,11 @@ export default function BudgetConsultation() {
                   "Code",
                   "Libellé",
                   "Budget",
-                  "Alloué",
-                  "Utilisé",
+                  "Province",
+                  "Administration",
+                  "UO",
+                  "Enveloppe",
+                  "Utilisé / décaissé",
                   "Disponible",
                   "Taux",
                   "Actions",
@@ -392,7 +635,7 @@ export default function BudgetConsultation() {
               {loading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={11}
                     className="h-32 text-center text-muted-foreground"
                   >
                     Chargement...
@@ -401,14 +644,14 @@ export default function BudgetConsultation() {
               ) : filteredLignes.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={11}
                     className="h-32 text-center text-muted-foreground"
                   >
                     Aucune ligne budgétaire trouvée
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredLignes.map((ligne) => (
+                paginatedLignes.map((ligne) => (
                   <TableRow
                     key={ligne.id}
                     className="transition-colors hover:bg-indigo-50/30"
@@ -416,38 +659,32 @@ export default function BudgetConsultation() {
                     <TableCell className="font-medium text-indigo-600">
                       {ligne.code ?? "—"}
                     </TableCell>
-                    <TableCell className="max-w-[200px] truncate">
+                    <TableCell className="max-w-[180px] truncate">
                       {ligne.libelle}
                     </TableCell>
-                    <TableCell>
-                      <span className="text-sm text-muted-foreground">
-                        {ligne.budget_libelle ?? "—"}
-                      </span>
-                      {ligne.province_nom && (
-                        <Badge
-                          variant="outline"
-                          className="ml-1.5 text-[10px] text-indigo-600"
-                        >
-                          {ligne.province_nom}
-                        </Badge>
-                      )}
-                      {ligne.annee && (
-                        <Badge variant="outline" className="ml-1.5 text-[10px]">
-                          {ligne.annee}
-                        </Badge>
-                      )}
+                    <TableCell className="text-sm text-muted-foreground">
+                      {ligne.budget_libelle ?? "—"}
+                    </TableCell>
+                    <TableCell>{ligne.province_nom ?? "—"}</TableCell>
+                    <TableCell className="max-w-[140px] truncate">
+                      {ligne.administration_nom ?? "—"}
+                    </TableCell>
+                    <TableCell className="max-w-[140px] truncate">
+                      {ligne.unite_operationnelle_nom ?? "—"}
                     </TableCell>
                     <TableCell className="font-medium">
                       {fmt(ligne.montant_alloue)}
                     </TableCell>
-                    <TableCell>{fmt(ligne.montant_utilise)}</TableCell>
+                    <TableCell className="font-semibold text-amber-700">
+                      {fmt(ligne.montant_utilise)}
+                    </TableCell>
                     <TableCell className="font-semibold text-emerald-700">
                       {fmt(ligne.montant_disponible)}
                     </TableCell>
                     <TableCell>
                       <div className="flex min-w-[100px] flex-col gap-1.5">
                         <Badge className={getTauxBadge(ligne.taux_utilisation)}>
-                          {ligne.taux_utilisation}%
+                          {formatTauxPercent(ligne.taux_utilisation)}
                         </Badge>
                         <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
                           <div
@@ -476,10 +713,20 @@ export default function BudgetConsultation() {
             </TableBody>
           </Table>
         </div>
+
+        {!loading && filteredLignes.length > 0 && (
+          <TablePagination
+            currentPage={currentPage}
+            pageSize={PAGE_SIZE}
+            totalItems={filteredLignes.length}
+            onPageChange={setCurrentPage}
+            itemLabel="ligne"
+          />
+        )}
       </Card>
 
       <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg border border-gray-200 bg-white shadow-xl">
           <DialogHeader>
             <DialogTitle>Détail de la ligne budgétaire</DialogTitle>
           </DialogHeader>
@@ -491,13 +738,25 @@ export default function BudgetConsultation() {
                   { label: "Libellé", value: selected.libelle },
                   { label: "Budget", value: selected.budget_libelle ?? "—" },
                   { label: "Province", value: selected.province_nom ?? "—" },
+                  {
+                    label: "Administration",
+                    value: selected.administration_nom ?? "—",
+                  },
+                  {
+                    label: "Unité opérationnelle",
+                    value: selected.unite_operationnelle_nom ?? "—",
+                  },
                   { label: "Année", value: selected.annee ?? "—" },
+                  {
+                    label: "Enveloppe UO (après décaissement)",
+                    value: fmt(selected.budget_montant ?? 0),
+                  },
                   {
                     label: "Montant alloué",
                     value: fmt(selected.montant_alloue),
                   },
                   {
-                    label: "Montant utilisé",
+                    label: "Utilisé / décaissé",
                     value: fmt(selected.montant_utilise),
                   },
                   {
@@ -506,7 +765,7 @@ export default function BudgetConsultation() {
                   },
                   {
                     label: "Taux d'utilisation",
-                    value: `${selected.taux_utilisation}%`,
+                    value: formatTauxPercent(selected.taux_utilisation),
                   },
                 ].map(({ label, value }) => (
                   <div

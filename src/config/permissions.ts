@@ -9,6 +9,7 @@ export type AppRole =
   | "informaticien"
   | "tresorier"
   | "controleur_budgetaire"
+  | "controleur_budgetaire_principal"
   | "assistant_gestionnaire";
 
 const ALWAYS_ALLOWED_PREFIXES = ["/acceuil/profil", "/acceuil/parametres"];
@@ -17,11 +18,15 @@ const ALWAYS_ALLOWED_PREFIXES = ["/acceuil/profil", "/acceuil/parametres"];
 const ROLE_ROUTE_PREFIXES: Record<Exclude<AppRole, "super_admin">, string[]> = {
   dba: ["/acceuil/utilisateurs"],
   informaticien: ["/acceuil/utilisateurs"],
-  tresorier: ["/acceuil/reglement"],
+  tresorier: ["/acceuil/reglement", "/acceuil/budget"],
   controleur_budgetaire: [
     "/acceuil",
     "/acceuil/engagements",
     "/acceuil/budget",
+  ],
+  controleur_budgetaire_principal: [
+    "/acceuil/lignes-budgetaires",
+    "/acceuil/administrations",
   ],
   assistant_gestionnaire: [
     "/acceuil",
@@ -36,6 +41,7 @@ const DEFAULT_HOME: Record<AppRole, string> = {
   informaticien: "/acceuil/utilisateurs",
   tresorier: "/acceuil/reglement",
   controleur_budgetaire: "/acceuil",
+  controleur_budgetaire_principal: "/acceuil/lignes-budgetaires",
   assistant_gestionnaire: "/acceuil",
 };
 
@@ -57,6 +63,7 @@ export function normalizeAppRole(role: string): AppRole | null {
   if (normalized === "DBA") return "dba";
   if (normalized.includes("INFORMATICIEN")) return "informaticien";
   if (normalized.includes("TRESORIER")) return "tresorier";
+  if (normalized.includes("PRINCIPAL")) return "controleur_budgetaire_principal";
   if (normalized.includes("CONTROLEUR")) return "controleur_budgetaire";
   if (normalized.includes("ASSISTANT")) return "assistant_gestionnaire";
 
@@ -110,6 +117,15 @@ export function canManageUsers(role: string): boolean {
   return appRole === "dba" || appRole === "informaticien";
 }
 
+export function canManageLignesBudgetaires(role: string): boolean {
+  if (isSuperAdmin(role)) return true;
+  return normalizeAppRole(role) === "controleur_budgetaire_principal";
+}
+
+export function canManageAdministrations(role: string): boolean {
+  return canManageLignesBudgetaires(role);
+}
+
 export function canManageReglements(role: string): boolean {
   if (isSuperAdmin(role)) return true;
   return normalizeAppRole(role) === "tresorier";
@@ -132,6 +148,16 @@ export function canManageEngagements(role: string): boolean {
 export function canAccessDashboard(role: string): boolean {
   if (isSuperAdmin(role)) return true;
   return canManageEngagements(role);
+}
+
+export function canReadBudget(role: string): boolean {
+  if (isSuperAdmin(role)) return true;
+  const appRole = normalizeAppRole(role);
+  return (
+    appRole === "controleur_budgetaire" ||
+    appRole === "assistant_gestionnaire" ||
+    appRole === "tresorier"
+  );
 }
 
 export type NavItemConfig = {
@@ -202,6 +228,18 @@ const ALL_NAV_ITEMS: NavItemConfig[] = [
     to: "/acceuil/utilisateurs",
     match: (path) => path.startsWith("/acceuil/utilisateurs"),
   },
+  {
+    id: "lignes-budgetaires",
+    label: "Lignes budgétaires",
+    to: "/acceuil/lignes-budgetaires",
+    match: (path) => path.startsWith("/acceuil/lignes-budgetaires"),
+  },
+  {
+    id: "administrations",
+    label: "Administrations",
+    to: "/acceuil/administrations",
+    match: (path) => path.startsWith("/acceuil/administrations"),
+  },
 ];
 
 export function getNavItemsForRole(role: string): NavItemConfig[] {
@@ -250,6 +288,12 @@ export function getNavItemsForRole(role: string): NavItemConfig[] {
     })
     .filter((item): item is NavItemConfig => {
       if (!item) return false;
+      if (item.id === "lignes-budgetaires") {
+        return canManageLignesBudgetaires(role);
+      }
+      if (item.id === "administrations") {
+        return canManageAdministrations(role);
+      }
       if (item.disabled) return canManageEngagements(role);
       return canAccessPath(role, item.to);
     });

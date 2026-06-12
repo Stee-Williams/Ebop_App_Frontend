@@ -1,6 +1,17 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { EngagementItem } from "@/config/app";
+import {
+  applyDgcptPageFooter,
+  DGCPT_MARGINS,
+  DGCPT_TABLE_STYLES,
+  drawDgcptHeader,
+  drawDgcptSignatureBlock,
+  formatMontantFcfa,
+  generateDocRef,
+  loadCachetImage,
+  loadDgcptLogo,
+} from "@/lib/exportPdfDgcpt";
 
 type ExportRow = {
   numero: string;
@@ -8,6 +19,7 @@ type ExportRow = {
   demandeur: string;
   objet: string;
   montant: string;
+  montantNumeric: number;
   statut: string;
 };
 
@@ -19,93 +31,89 @@ type ExportOptions = {
   rows: ExportRow[];
 };
 
-export function exportEngagementsPdf({
+export async function exportEngagementsPdf({
   title,
   subtitle,
   filtreStatut,
   exportedBy,
   rows,
-}: ExportOptions): void {
+}: ExportOptions): Promise<void> {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const pageWidth = doc.internal.pageSize.getWidth();
+  const docRef = generateDocRef("REG-ENG");
+  const [logo, cachet] = await Promise.all([loadDgcptLogo(), loadCachetImage()]);
+  const totalMontant = rows.reduce((sum, row) => sum + row.montantNumeric, 0);
 
-  doc.setFontSize(16);
-  doc.setTextColor(30, 58, 95);
-  doc.text("EBOP — Portail de gestion des crédits", 14, 16);
-
-  doc.setFontSize(12);
-  doc.setTextColor(50, 50, 50);
-  doc.text(title, 14, 24);
-
-  if (subtitle) {
-    doc.setFontSize(9);
-    doc.setTextColor(100, 100, 100);
-    doc.text(subtitle, 14, 30);
-  }
-
-  let metaY = subtitle ? 36 : 30;
-  doc.setFontSize(8);
-  doc.setTextColor(120, 120, 120);
-  const meta = [
-    `Généré le ${new Date().toLocaleString("fr-FR")}`,
-    filtreStatut ? `Filtre statut : ${filtreStatut}` : null,
-    exportedBy ? `Exporté par : ${exportedBy}` : null,
-    `${rows.length} dossier(s)`,
-  ]
-    .filter(Boolean)
-    .join("  ·  ");
-  doc.text(meta, 14, metaY);
+  const startY = drawDgcptHeader(
+    doc,
+    {
+      documentTitle: title,
+      documentSubtitle: subtitle,
+      reference: docRef,
+      exercice: new Date().getFullYear(),
+      editedBy: exportedBy,
+      filterLabel: filtreStatut,
+      dossierCount: rows.length,
+    },
+    logo
+  );
 
   autoTable(doc, {
-    startY: metaY + 6,
-    head: [["Réf.", "Date", "Demandeur", "Objet", "Montant", "Statut"]],
-    body: rows.map((r) => [
-      r.numero,
-      r.date,
-      r.demandeur,
-      r.objet,
-      r.montant,
-      r.statut,
+    startY,
+    head: [["N°", "Référence", "Date", "Demandeur", "Objet de la dépense", "Montant (FCFA)", "Statut"]],
+    body: rows.map((row, index) => [
+      String(index + 1),
+      row.numero,
+      row.date,
+      row.demandeur,
+      row.objet,
+      row.montant,
+      row.statut,
     ]),
-    styles: {
-      fontSize: 8,
-      cellPadding: 2.5,
-    },
-    headStyles: {
-      fillColor: [30, 58, 95],
-      textColor: 255,
-      fontStyle: "bold",
-    },
-    alternateRowStyles: {
-      fillColor: [245, 247, 250],
-    },
+    foot: [
+      [
+        {
+          content: `TOTAL GÉNÉRAL — ${rows.length} dossier(s)`,
+          colSpan: 5,
+          styles: { halign: "right" as const },
+        },
+        formatMontantFcfa(totalMontant),
+        "",
+      ],
+    ],
+    ...DGCPT_TABLE_STYLES,
     columnStyles: {
-      0: { cellWidth: 32 },
-      1: { cellWidth: 22 },
-      2: { cellWidth: 38 },
-      3: { cellWidth: 80 },
-      4: { cellWidth: 30, halign: "right" },
-      5: { cellWidth: 24 },
+      0: { cellWidth: 10, halign: "center" },
+      1: { cellWidth: 30 },
+      2: { cellWidth: 22, halign: "center" },
+      3: { cellWidth: 36 },
+      4: { cellWidth: 78 },
+      5: { cellWidth: 32, halign: "right" },
+      6: { cellWidth: 22, halign: "center" },
     },
-    margin: { left: 14, right: 14 },
+    margin: { left: DGCPT_MARGINS.left, right: DGCPT_MARGINS.right, bottom: DGCPT_MARGINS.bottom },
+    didDrawPage: (data) => {
+      applyDgcptPageFooter(doc, data.pageNumber, doc.getNumberOfPages(), docRef);
+    },
   });
+
+  const finalY =
+    (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ??
+    startY + 20;
+
+  drawDgcptSignatureBlock(
+    doc,
+    finalY,
+    [
+      ["Le Contrôleur budgétaire", "Visa — Nom, qualité et signature"],
+      ["L'Agent comptable", "Nom, qualité et signature"],
+    ],
+    cachet
+  );
 
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-    doc.setFontSize(7);
-    doc.setTextColor(150, 150, 150);
-    doc.text(
-      "DGCPT — Direction Générale de la Comptabilité Publique et du Trésor",
-      14,
-      doc.internal.pageSize.getHeight() - 8
-    );
-    doc.text(
-      `Page ${i} / ${pageCount}`,
-      pageWidth - 14,
-      doc.internal.pageSize.getHeight() - 8,
-      { align: "right" }
-    );
+    applyDgcptPageFooter(doc, i, pageCount, docRef);
   }
 
   const fileName = `registre-engagements-${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -114,7 +122,6 @@ export function exportEngagementsPdf({
 
 export function buildExportRow(
   item: EngagementItem,
-  fmt: (n: number) => string,
   fmtDate: (d: string) => string,
   normalizeStatut: (s: string) => string
 ): ExportRow {
@@ -127,7 +134,8 @@ export function buildExportRow(
       item.titre ??
       item.ligne_budgetaire_libelle ??
       "—",
-    montant: fmt(item.montant),
+    montant: formatMontantFcfa(item.montant),
+    montantNumeric: item.montant,
     statut: normalizeStatut(item.statut),
   };
 }

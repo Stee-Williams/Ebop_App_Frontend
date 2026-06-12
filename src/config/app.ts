@@ -1,3 +1,5 @@
+import { normalizeAppRole } from "@/config/permissions";
+
 // En dev, laisser vide pour passer par le proxy Vite (/api → localhost:8000)
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
@@ -95,6 +97,9 @@ export function getUserSession(): UserSession | null {
 export {
   canAccessPath,
   canManageEngagements,
+  canManageAdministrations,
+  canManageLignesBudgetaires,
+  canReadBudget,
   canManageReglements,
   canManageUsers,
   canVisaEngagements,
@@ -105,12 +110,7 @@ export {
 } from "@/config/permissions";
 
 export function isControleurBudgetaire(role: string): boolean {
-  const normalized = role.toUpperCase().replace(/\s+/g, "_");
-  return (
-    normalized.includes("CONTROLEUR") ||
-    normalized.includes("CONTRÔLEUR") ||
-    normalized === "CONTROLEUR_BUDGETAIRE"
-  );
+  return normalizeAppRole(role) === "controleur_budgetaire";
 }
 
 export function filterByUserProvince<T extends { province_id: number | null }>(
@@ -164,8 +164,21 @@ export async function authFetch(
   }
 
   try {
-    return await fetch(url, { ...options, headers });
-  } catch {
+    const response = await fetch(url, { ...options, headers });
+
+    if (response.status === 401) {
+      clearUserSession();
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
+      throw new Error("Session expirée. Veuillez vous reconnecter.");
+    }
+
+    return response;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("Session expirée")) {
+      throw err;
+    }
     throw new Error(
       "Impossible de contacter le serveur. Vérifiez que le backend est démarré."
     );
@@ -259,6 +272,11 @@ export const ROLE_OPTIONS = [
   { label: "DBA", value: "DBA", id: 4 },
   { label: "Assistant gestionnaire", value: "Assistant gestionnaire", id: 5 },
   { label: "Contrôleur Budgétaire", value: "Controleur Budgétaire", id: 1 },
+  {
+    label: "Contrôleur budgétaire principale",
+    value: "Controleur Budgétaire Principale",
+    id: 7,
+  },
   { label: "Trésorier", value: "Trésorier", id: 2 },
   { label: "Informaticien", value: "Informaticien", id: 3 },
 ] as const;
@@ -274,6 +292,7 @@ export function getRoleId(role: string): number | undefined {
 const ROLE_DB_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super administrateur",
   CONTROLEUR_BUDGETAIRE: "Contrôleur Budgétaire",
+  CONTROLEUR_BUDGETAIRE_PRINCIPALE: "Contrôleur budgétaire principale",
   TRESORIER: "Trésorier",
   INFORMATICIEN: "Informaticien",
   DBA: "DBA",
@@ -444,7 +463,10 @@ export type BudgetItem = {
   annee: number;
   libelle: string;
   montant: number;
+  unite_operationnelle_id?: number | null;
   unite_operationnelle: string | null;
+  administration_id?: number | null;
+  administration_nom?: string | null;
   province_id: number | null;
   province_nom: string | null;
   lignes_count: number;
@@ -456,13 +478,19 @@ export type LigneBudgetaireItem = {
   libelle: string;
   montant_alloue: number;
   montant_utilise: number;
+  montant_decaisse: number;
   montant_disponible: number;
   taux_utilisation: number;
   budget_id: number | null;
   budget_libelle: string | null;
+  budget_montant?: number | null;
   annee: number | null;
   province_id: number | null;
   province_nom: string | null;
+  administration_id?: number | null;
+  administration_nom?: string | null;
+  unite_operationnelle_id?: number | null;
+  unite_operationnelle_nom?: string | null;
 };
 
 export type BudgetConsultationResponse = {
@@ -473,6 +501,8 @@ export type BudgetConsultationResponse = {
     total_alloue: number;
     total_utilise: number;
     total_disponible: number;
+    total_decaisse: number;
+    total_budget_global: number;
     taux_global: number;
     nombre_lignes: number;
     nombre_budgets: number;
@@ -518,12 +548,34 @@ export type ProvinceItem = {
   code: string;
 };
 
+export type AdministrationLigneItem = {
+  id: number;
+  code: string | null;
+  libelle: string;
+  montant_alloue: number;
+  montant_utilise?: number;
+  montant_disponible?: number;
+  budget_id?: number | null;
+  budget_libelle?: string | null;
+  annee?: number | null;
+};
+
+export type AdministrationUniteItem = {
+  id: number;
+  nom: string;
+  code: string | null;
+  budget_annee: number | null;
+  lignes_budgetaires: AdministrationLigneItem[];
+};
+
 export type AdministrationItem = {
   id: number;
   nom: string;
   code: string;
   province_id: number | null;
   province_nom: string | null;
+  unites_count?: number;
+  unites_operationnelles?: AdministrationUniteItem[];
 };
 
 export type UniteOperationnelleItem = {
@@ -557,6 +609,10 @@ export type LigneBudgetaireListItem = {
   budget_id: number | null;
   budget_libelle: string | null;
   annee: number | null;
+  province_id?: number | null;
+  province_nom?: string | null;
+  administration_id?: number | null;
+  administration_nom?: string | null;
 };
 
 export type PosteComptableItem = {
@@ -577,11 +633,138 @@ export type FournisseurItem = {
 export const getProvinces = () => fetchList<ProvinceItem>("/api/provinces");
 export const getAdministrations = () =>
   fetchList<AdministrationItem>("/api/administrations");
+
+export type CreateAdministrationLignePayload = {
+  code?: string;
+  libelle: string;
+  montant_alloue: number;
+};
+
+export type CreateAdministrationUnitePayload = {
+  nom: string;
+  code?: string;
+  budget_annee?: number;
+  lignes_budgetaires?: CreateAdministrationLignePayload[];
+};
+
+export type CreateAdministrationPayload = {
+  nom: string;
+  code: string;
+  province_id?: number | null;
+  unites_operationnelles?: CreateAdministrationUnitePayload[];
+};
+
+export async function getAdministrationById(
+  id: number
+): Promise<AdministrationItem> {
+  const response = await authFetch(`${API_BASE_URL}/api/administrations/${id}`);
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Administration introuvable");
+  }
+
+  const { success: _success, ...detail } = data as AdministrationItem & {
+    success: boolean;
+  };
+  return detail;
+}
+
+export async function createAdministration(
+  payload: CreateAdministrationPayload
+): Promise<{ success: boolean; message?: string; data?: AdministrationItem }> {
+  const response = await authFetch(`${API_BASE_URL}/api/administrations`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la création");
+  }
+
+  return data;
+}
+
+export async function updateAdministration(
+  id: number,
+  payload: Partial<CreateAdministrationPayload>
+): Promise<{ success: boolean; message?: string; data?: AdministrationItem }> {
+  const response = await authFetch(`${API_BASE_URL}/api/administrations/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la mise à jour");
+  }
+
+  return data;
+}
+
+export async function deleteAdministration(
+  id: number
+): Promise<{ success: boolean; message?: string }> {
+  const response = await authFetch(`${API_BASE_URL}/api/administrations/${id}`, {
+    method: "DELETE",
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la suppression");
+  }
+
+  return data;
+}
 export const getUnitesOperationnelles = () =>
   fetchList<UniteOperationnelleItem>("/api/unites-operationnelles");
 export const getBudgets = () => fetchList<BudgetListItem>("/api/budgets");
 export const getLignesBudgetaires = () =>
   fetchList<LigneBudgetaireListItem>("/api/lignes-budgetaires");
+
+export type CreateLigneBudgetairePayload = {
+  code?: string;
+  libelle: string;
+  montant_alloue: number;
+  budget_id: number;
+};
+
+export async function createLigneBudgetaire(
+  payload: CreateLigneBudgetairePayload
+): Promise<{ success: boolean; message?: string; data?: LigneBudgetaireListItem }> {
+  const response = await authFetch(`${API_BASE_URL}/api/lignes-budgetaires`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la création de la ligne");
+  }
+
+  return data;
+}
+
+export async function deleteLigneBudgetaire(
+  id: number
+): Promise<{ success: boolean; message?: string }> {
+  const response = await authFetch(`${API_BASE_URL}/api/lignes-budgetaires/${id}`, {
+    method: "DELETE",
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la suppression");
+  }
+
+  return data;
+}
 export const getPostesComptables = () =>
   fetchList<PosteComptableItem>("/api/postes-comptables");
 export const getFournisseurs = () =>
@@ -610,6 +793,9 @@ export type EngagementItem = {
   unite_operationnelle_nom: string | null;
   poste_comptable_libelle?: string | null;
   ligne_budgetaire_libelle?: string | null;
+  vise_par?: string | null;
+  date_visa?: string | null;
+  motif_rejet?: string | null;
 };
 
 export const getEngagements = () =>
@@ -658,9 +844,14 @@ export type CreateEngagementResponse = {
   };
 };
 
+export type UpdateEngagementPayload = {
+  statut?: string;
+  motif_rejet?: string;
+};
+
 export async function updateEngagement(
   id: number,
-  payload: { statut: string }
+  payload: UpdateEngagementPayload
 ): Promise<{ success: boolean; message?: string }> {
   const response = await authFetch(`${API_BASE_URL}/api/engagements/${id}`, {
     method: "PATCH",
@@ -698,6 +889,61 @@ export async function createEngagement(
 
   if (!response.ok || !data.success) {
     throw new Error(data.message || "Erreur lors de la création de l'engagement");
+  }
+
+  return data;
+}
+
+/* ==========================================
+REGLEMENTS
+========================================== */
+
+export type ReglementItem = {
+  id: number;
+  reference: string;
+  montant: number;
+  mode_paiement: string;
+  date_reglement: string;
+  created_at?: string | null;
+  cree_par?: string | null;
+  engagement_id: number;
+  engagement_numero: string;
+  engagement_titre?: string | null;
+  engagement_statut?: string;
+  fournisseur?: string | null;
+  demandeur?: string | null;
+  user_id?: number | null;
+  province_id: number | null;
+  province_nom: string | null;
+  administration_id?: number | null;
+  administration_nom?: string | null;
+  unite_operationnelle_id?: number | null;
+  unite_operationnelle_nom?: string | null;
+  ligne_budgetaire_id?: number | null;
+  ligne_budgetaire_libelle?: string | null;
+  poste_comptable_libelle?: string | null;
+};
+
+export const getReglements = () => fetchList<ReglementItem>("/api/reglements");
+
+export type CreateReglementPayload = {
+  engagement_id: number;
+  mode_paiement: string;
+  date_reglement: string;
+};
+
+export async function createReglement(
+  payload: CreateReglementPayload
+): Promise<{ success: boolean; message?: string; data?: ReglementItem }> {
+  const response = await authFetch(`${API_BASE_URL}/api/reglements`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de l'enregistrement du règlement");
   }
 
   return data;

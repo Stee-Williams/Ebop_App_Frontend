@@ -35,6 +35,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
+import { TablePagination } from "@/components/TablePagination";
+
+const PAGE_SIZE = 6;
 import {
   getAdministrations,
   getEngagements,
@@ -50,9 +53,6 @@ import {
   type UserListItem,
 } from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
-
-const ITEMS_PER_PAGE = 8;
 
 const statusClass: Record<string, string> = {
   Visé: "bg-emerald-100 text-emerald-800 hover:bg-emerald-100",
@@ -250,15 +250,18 @@ export default function AutresEngagements() {
     filtreControleur,
   ]);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredData.length / ITEMS_PER_PAGE)
-  );
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const paginatedData = filteredData.slice(
-    startIndex,
-    startIndex + ITEMS_PER_PAGE
-  );
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));
+
+  const paginatedData = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredData.slice(start, start + PAGE_SIZE);
+  }, [filteredData, currentPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const handleProvinceChange = (value: string) => {
     setFiltreProvince(value);
@@ -303,7 +306,7 @@ export default function AutresEngagements() {
       <Card className="border-0 bg-white/80 shadow-sm backdrop-blur-sm">
         <CardContent className="p-5">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
-            <div className="relative sm:col-span-2 lg:col-span-2 xl:col-span-2">
+            <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Recherche générale..."
@@ -533,23 +536,14 @@ export default function AutresEngagements() {
           </Table>
         </div>
 
-        {filteredData.length > 0 && (
-          <div className="flex justify-center gap-2 border-t border-gray-100 p-4">
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-              <Button
-                key={p}
-                size="sm"
-                variant={p === currentPage ? "default" : "outline"}
-                className={cn(
-                  "h-9 w-9 rounded-lg p-0",
-                  p === currentPage && "bg-indigo-600 hover:bg-indigo-700"
-                )}
-                onClick={() => setCurrentPage(p)}
-              >
-                {p}
-              </Button>
-            ))}
-          </div>
+        {!loading && filteredData.length > 0 && (
+          <TablePagination
+            currentPage={currentPage}
+            pageSize={PAGE_SIZE}
+            totalItems={filteredData.length}
+            onPageChange={setCurrentPage}
+            itemLabel="engagement"
+          />
         )}
       </Card>
 

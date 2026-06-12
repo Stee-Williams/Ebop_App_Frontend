@@ -19,6 +19,8 @@ import Parametres from "./pages/Parametres";
 import PlaceholderPage from "./pages/PlaceholderPage";
 import BudgetConsultation from "./pages/BudgetConsultation";
 import Utilisateurs from "./pages/Utilisateurs";
+import LignesBudgetaires from "./pages/LignesBudgetaires";
+import Administrations from "./pages/Administrations";
 import AppLayout from "./components/layout/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -79,6 +81,8 @@ const App = () => (
             <Route path="reglement" element={<Reglements />} />
             <Route path="budget" element={<BudgetConsultation />} />
             <Route path="utilisateurs" element={<Utilisateurs />} />
+            <Route path="lignes-budgetaires" element={<LignesBudgetaires />} />
+            <Route path="administrations" element={<Administrations />} />
             <Route path="utilisateurs/inscription" element={<Inscription embedded />} />
             <Route path="profil" element={<MonProfil />} />
             <Route path="parametres" element={<Parametres />} />

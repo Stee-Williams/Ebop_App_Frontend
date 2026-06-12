@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Clock,
+  Eye,
+  FileDown,
   MapPin,
+  Network,
   Plus,
   Receipt,
   Search,
@@ -14,6 +17,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -35,21 +39,31 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
+import { TablePagination } from "@/components/TablePagination";
+
+const PAGE_SIZE = 6;
 import {
   ensureUserProvince,
-  getEngagements,
+  createReglement,
   getEngagementsVises,
   getProvinces,
+  getReglements,
+  getUnitesOperationnelles,
   getUserSession,
   getUsers,
   isControleurBudgetaire,
   isSuperAdmin,
-  updateEngagement,
   type EngagementItem,
   type ProvinceItem,
+  type ReglementItem,
+  type UniteOperationnelleItem,
   type UserListItem,
 } from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
+import {
+  buildReglementExportRow,
+  exportReglementPdf,
+} from "@/lib/exportReglementPdf";
 import { cn } from "@/lib/utils";
 
 const fmt = (n: number) =>
@@ -70,13 +84,44 @@ const statusClass: Record<string, string> = {
   Réglé: "bg-emerald-100 text-emerald-800 hover:bg-emerald-100",
 };
 
+type ReglementRow = {
+  id: number;
+  reglement_id?: number | null;
+  reference?: string | null;
+  numero: string;
+  objet?: string | null;
+  titre?: string | null;
+  fournisseur?: string | null;
+  montant: number;
+  administration_nom?: string | null;
+  date: string;
+  user_id?: number | null;
+  demandeur?: string | null;
+  province_id: number | null;
+  province_nom: string | null;
+  mode_paiement?: string | null;
+  cree_par?: string | null;
+  ligne_budgetaire_libelle?: string | null;
+  unite_operationnelle_id?: number | null;
+  unite_operationnelle_nom?: string | null;
+  displayStatut: "En attente de règlement" | "Réglé";
+};
+
+type DetailField = {
+  label: string;
+  value?: string | null;
+  highlight?: boolean;
+  full?: boolean;
+};
+
 export default function Reglements() {
   const { toast } = useToast();
   const sessionUser = getUserSession();
   const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [controleurs, setControleurs] = useState<UserListItem[]>([]);
+  const [unites, setUnites] = useState<UniteOperationnelleItem[]>([]);
   const [enAttente, setEnAttente] = useState<EngagementItem[]>([]);
-  const [regles, setRegles] = useState<EngagementItem[]>([]);
+  const [regles, setRegles] = useState<ReglementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filtreProvince, setFiltreProvince] = useState(
@@ -85,6 +130,7 @@ export default function Reglements() {
       : "tous"
   );
   const [filtreControleur, setFiltreControleur] = useState("tous");
+  const [filtreUo, setFiltreUo] = useState("tous");
   const [filtreStatut, setFiltreStatut] = useState("Tous");
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
@@ -92,22 +138,27 @@ export default function Reglements() {
     mode_paiement: "Virement",
     date_reglement: new Date().toISOString().split("T")[0],
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [detailRow, setDetailRow] = useState<ReglementRow | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
     try {
       await ensureUserProvince();
 
-      const [visesData, allData, provincesData, usersData] = await Promise.all([
-        getEngagementsVises(),
-        getEngagements(),
-        getProvinces(),
-        getUsers(),
-      ]);
+      const [visesData, reglementsData, provincesData, usersData, unitesData] =
+        await Promise.all([
+          getEngagementsVises(),
+          getReglements(),
+          getProvinces(),
+          getUsers(),
+          getUnitesOperationnelles(),
+        ]);
 
       setEnAttente(visesData);
-      setRegles(allData.filter((e) => e.statut === "Réglé"));
+      setRegles(reglementsData);
       setProvinces(provincesData);
+      setUnites(unitesData);
       setControleurs(
         usersData.filter((u) => u.role && isControleurBudgetaire(u.role))
       );
@@ -126,14 +177,50 @@ export default function Reglements() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const allRows = useMemo(
+  const allRows = useMemo<ReglementRow[]>(
     () => [
       ...enAttente.map((e) => ({
-        ...e,
+        id: e.id,
+        reglement_id: null,
+        reference: null,
+        numero: e.numero,
+        objet: e.objet,
+        titre: e.titre,
+        fournisseur: e.fournisseur,
+        montant: e.montant,
+        administration_nom: e.administration_nom,
+        date: e.date,
+        user_id: e.user_id,
+        demandeur: e.demandeur,
+        province_id: e.province_id,
+        province_nom: e.province_nom,
+        mode_paiement: null,
+        cree_par: null,
+        ligne_budgetaire_libelle: e.ligne_budgetaire_libelle,
+        unite_operationnelle_id: e.unite_operationnelle_id,
+        unite_operationnelle_nom: e.unite_operationnelle_nom,
         displayStatut: "En attente de règlement" as const,
       })),
-      ...regles.map((e) => ({
-        ...e,
+      ...regles.map((r) => ({
+        id: r.engagement_id,
+        reglement_id: r.id,
+        reference: r.reference,
+        numero: r.engagement_numero,
+        objet: r.engagement_titre,
+        titre: r.engagement_titre,
+        fournisseur: r.fournisseur,
+        montant: r.montant,
+        administration_nom: r.administration_nom,
+        date: r.date_reglement,
+        user_id: r.user_id,
+        demandeur: r.demandeur,
+        province_id: r.province_id,
+        province_nom: r.province_nom,
+        mode_paiement: r.mode_paiement,
+        cree_par: r.cree_par,
+        ligne_budgetaire_libelle: r.ligne_budgetaire_libelle,
+        unite_operationnelle_id: r.unite_operationnelle_id,
+        unite_operationnelle_nom: r.unite_operationnelle_nom,
         displayStatut: "Réglé" as const,
       })),
     ],
@@ -147,6 +234,16 @@ export default function Reglements() {
     );
   }, [controleurs, filtreProvince]);
 
+  const uoOptions = useMemo(() => {
+    if (filtreProvince === "tous") return unites;
+    return unites.filter((u) => {
+      const row = allRows.find(
+        (r) => String(r.unite_operationnelle_id) === String(u.id)
+      );
+      return row != null && String(row.province_id) === filtreProvince;
+    });
+  }, [unites, filtreProvince, allRows]);
+
   const filtered = useMemo(
     () =>
       allRows.filter((r) => {
@@ -157,6 +254,8 @@ export default function Reglements() {
           r.fournisseur,
           r.administration_nom,
           r.province_nom,
+          r.unite_operationnelle_nom,
+          r.ligne_budgetaire_libelle,
           r.demandeur,
         ]
           .filter(Boolean)
@@ -172,6 +271,9 @@ export default function Reglements() {
         const matchProvince =
           filtreProvince === "tous" ||
           String(r.province_id) === filtreProvince;
+        const matchUo =
+          filtreUo === "tous" ||
+          String(r.unite_operationnelle_id) === filtreUo;
         const selectedControleur = controleurOptions.find(
           (c) => String(c.id) === filtreControleur
         );
@@ -181,7 +283,11 @@ export default function Reglements() {
           (selectedControleur != null &&
             r.demandeur === selectedControleur.nom);
         return (
-          matchSearch && matchStatut && matchProvince && matchControleur
+          matchSearch &&
+          matchStatut &&
+          matchProvince &&
+          matchUo &&
+          matchControleur
         );
       }),
     [
@@ -189,6 +295,7 @@ export default function Reglements() {
       search,
       filtreStatut,
       filtreProvince,
+      filtreUo,
       filtreControleur,
       controleurOptions,
     ]
@@ -228,9 +335,27 @@ export default function Reglements() {
     [filtered]
   );
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+
+  const paginatedRows = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filtreStatut, filtreProvince, filtreUo, filtreControleur]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const handleProvinceChange = (value: string) => {
     setFiltreProvince(value);
     setFiltreControleur("tous");
+    setFiltreUo("tous");
   };
 
   const handleCreate = async () => {
@@ -243,7 +368,11 @@ export default function Reglements() {
       return;
     }
     try {
-      await updateEngagement(Number(form.engagement_id), { statut: "Réglé" });
+      await createReglement({
+        engagement_id: Number(form.engagement_id),
+        mode_paiement: form.mode_paiement,
+        date_reglement: form.date_reglement,
+      });
       toast({
         title: "Règlement enregistré",
         description: "Le paiement a été enregistré avec succès.",
@@ -292,6 +421,42 @@ export default function Reglements() {
       small: true,
     },
   ];
+
+  const detailFields = (row: ReglementRow): DetailField[] => [
+    { label: "N° engagement", value: row.numero },
+    { label: "Référence règlement", value: row.reference ?? "—" },
+    { label: "Objet", value: row.objet ?? row.titre, full: true },
+    { label: "Fournisseur", value: row.fournisseur },
+    { label: "Montant", value: fmt(Number(row.montant)), highlight: true },
+    { label: "Statut", value: row.displayStatut },
+    { label: "Date", value: fmtDate(row.date) },
+    { label: "Mode de paiement", value: row.mode_paiement ?? "—" },
+    { label: "Demandeur", value: row.demandeur },
+    { label: "Province", value: row.province_nom },
+    { label: "Administration", value: row.administration_nom },
+    { label: "Unité opérationnelle", value: row.unite_operationnelle_nom },
+    { label: "Ligne budgétaire", value: row.ligne_budgetaire_libelle },
+    { label: "Enregistré par", value: row.cree_par ?? "—" },
+  ];
+
+  const handleExportPdf = async (row: ReglementRow) => {
+    try {
+      await exportReglementPdf({
+        row: buildReglementExportRow(row, fmtDate),
+        exportedBy: sessionUser?.nom,
+      });
+      toast({
+        title: "Export PDF",
+        description: "Le fichier a été téléchargé.",
+      });
+    } catch {
+      toast({
+        title: "Erreur",
+        description: "Impossible de générer le PDF.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const provinceLabel = useMemo(() => {
     if (filtreProvince === "tous") return "Toutes les provinces";
@@ -353,11 +518,11 @@ export default function Reglements() {
       </div>
 
       <Card className="border-0 bg-white/80 shadow-sm backdrop-blur-sm">
-        <CardContent className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="relative sm:col-span-2 lg:col-span-2">
+        <CardContent className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Rechercher..."
+              placeholder="Rechercher par UO, objet..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-11 border-gray-200 bg-white pl-10"
@@ -373,6 +538,20 @@ export default function Reglements() {
               {provinces.map((p) => (
                 <SelectItem key={p.id} value={String(p.id)}>
                   {p.nom}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filtreUo} onValueChange={setFiltreUo}>
+            <SelectTrigger className="h-11 border-gray-200 bg-white">
+              <Network className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+              <SelectValue placeholder="Unité opérationnelle" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tous">Toutes les UO</SelectItem>
+              {uoOptions.map((u) => (
+                <SelectItem key={u.id} value={String(u.id)}>
+                  {u.nom}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -395,7 +574,7 @@ export default function Reglements() {
             </SelectContent>
           </Select>
           <Select value={filtreStatut} onValueChange={setFiltreStatut}>
-            <SelectTrigger className="h-11 border-gray-200 bg-white sm:col-span-2 lg:col-span-1">
+            <SelectTrigger className="h-11 border-gray-200 bg-white">
               <SelectValue placeholder="Statut" />
             </SelectTrigger>
             <SelectContent>
@@ -422,6 +601,7 @@ export default function Reglements() {
                   "Administration",
                   "Date",
                   "Statut",
+                  "Actions",
                 ].map((h) => (
                   <TableHead
                     key={h}
@@ -436,7 +616,7 @@ export default function Reglements() {
               {loading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="h-32 text-center text-muted-foreground"
                   >
                     Chargement...
@@ -445,14 +625,14 @@ export default function Reglements() {
               ) : filtered.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="h-32 text-center text-muted-foreground"
                   >
                     Aucun engagement visé en attente de règlement
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((r) => (
+                paginatedRows.map((r) => (
                   <TableRow
                     key={`${r.id}-${r.displayStatut}`}
                     className="transition-colors hover:bg-indigo-50/30"
@@ -477,13 +657,99 @@ export default function Reglements() {
                         {r.displayStatut}
                       </Badge>
                     </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700"
+                          onClick={() => setDetailRow(r)}
+                          title="Voir le détail"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700"
+                          onClick={() => handleExportPdf(r)}
+                          title="Exporter en PDF"
+                        >
+                          <FileDown className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
             </TableBody>
           </Table>
         </div>
+
+        {!loading && filtered.length > 0 && (
+          <TablePagination
+            currentPage={currentPage}
+            pageSize={PAGE_SIZE}
+            totalItems={filtered.length}
+            onPageChange={setCurrentPage}
+            itemLabel="règlement"
+          />
+        )}
       </Card>
+
+      <Dialog
+        open={detailRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailRow(null);
+        }}
+      >
+        <DialogContent className="max-w-lg border border-gray-200 bg-white shadow-xl">
+          <DialogHeader>
+            <DialogTitle>Détail du règlement</DialogTitle>
+            <DialogDescription>
+              Informations complètes sur l&apos;engagement et le paiement.
+            </DialogDescription>
+          </DialogHeader>
+
+          {detailRow && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {detailFields(detailRow).map((field) => (
+                  <div
+                    key={field.label}
+                    className={cn(
+                      "rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5",
+                      field.full && "sm:col-span-2"
+                    )}
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {field.label}
+                    </p>
+                    <p
+                      className={cn(
+                        "mt-1 text-sm text-gray-900",
+                        field.highlight && "font-bold text-indigo-600"
+                      )}
+                    >
+                      {field.value ?? "—"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => handleExportPdf(detailRow)}
+                >
+                  <FileDown className="h-4 w-4" />
+                  Exporter en PDF
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-md">

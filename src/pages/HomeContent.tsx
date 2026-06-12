@@ -121,7 +121,7 @@ function filterReglementsDuMois(
 
 function computeStats(
   allEngagements: EngagementItem[],
-  budgetDisponible: number,
+  budgetGlobal: number,
   provinceId: number | null,
   provinceNom: string | null,
   restrictToProvince: boolean
@@ -164,9 +164,9 @@ function computeStats(
       gradient: "from-teal-500 to-emerald-600",
     },
     {
-      label: "Budget disponible",
-      value: fmt(budgetDisponible),
-      trend: "Exercice en cours",
+      label: "Budget global",
+      value: fmt(budgetGlobal),
+      trend: "Enveloppe budgétaire — exercice en cours",
       icon: Wallet,
       gradient: "from-amber-500 to-orange-500",
     },
@@ -213,15 +213,16 @@ const HomeContent = () => {
         ]);
 
         const lignes = filterByUserProvince(budgetData.lignes, provinceId);
-        const budgetDisponible = lignes.reduce(
-          (sum, l) => sum + l.montant_disponible,
-          0
-        );
+        const budgets = filterByUserProvince(budgetData.budgets, provinceId);
+        const budgetGlobal =
+          budgets.length > 0
+            ? budgets.reduce((sum, b) => sum + b.montant, 0)
+            : lignes.reduce((sum, l) => sum + l.montant_alloue, 0);
 
         setStats(
           computeStats(
             engagementsData,
-            budgetDisponible,
+            budgetGlobal,
             provinceId,
             provinceNom,
             restrictToProvince
