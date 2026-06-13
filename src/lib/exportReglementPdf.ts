@@ -8,7 +8,6 @@ import {
   drawDgcptSignatureBlock,
   formatMontantDgcpt,
   generateDocRef,
-  loadCachetImage,
   loadDgcptLogo,
 } from "@/lib/exportPdfDgcpt";
 
@@ -24,6 +23,9 @@ export type ReglementDetailExport = {
   date: string;
   statut: string;
   mode_paiement?: string | null;
+  numero_compte?: string | null;
+  banque_fournisseur?: string | null;
+  poste_comptable?: string | null;
   cree_par?: string | null;
 };
 
@@ -38,7 +40,7 @@ export async function exportReglementPdf({
 }: ExportOptions): Promise<void> {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const docRef = generateDocRef("REG-PAI");
-  const [logo, cachet] = await Promise.all([loadDgcptLogo(), loadCachetImage()]);
+  const logo = await loadDgcptLogo();
 
   const startY = drawDgcptHeader(
     doc,
@@ -62,6 +64,13 @@ export async function exportReglementPdf({
       ["Fournisseur / Créancier", row.fournisseur ?? "—"],
       ["Montant réglé", row.montant],
       ["Mode de paiement", row.mode_paiement ?? "—"],
+      ...(row.mode_paiement === "Virement"
+        ? [
+            ["N° de compte", row.numero_compte ?? "—"],
+            ["Banque du fournisseur", row.banque_fournisseur ?? "—"],
+          ]
+        : []),
+      ["Poste comptable", row.poste_comptable ?? "Non renseigné"],
       ["Date du règlement", row.date],
       ["Administration", row.administration ?? "—"],
       ["Province", row.province ?? "—"],
@@ -96,15 +105,10 @@ export async function exportReglementPdf({
     { maxWidth: pageWidth - left - right }
   );
 
-  drawDgcptSignatureBlock(
-    doc,
-    y + 10,
-    [
-      ["L'Agent de trésorerie", "Nom, qualité et signature"],
-      ["L'Ordonnateur", "Nom, qualité et signature"],
-    ],
-    cachet
-  );
+  drawDgcptSignatureBlock(doc, y + 6, [
+    ["L'Agent de trésorerie", "Nom, qualité et signature"],
+    ["L'Ordonnateur", "Nom, qualité et signature"],
+  ]);
 
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
@@ -131,6 +135,9 @@ export function buildReglementExportRow(
     date: string;
     displayStatut: string;
     mode_paiement?: string | null;
+    numero_compte?: string | null;
+    banque_fournisseur?: string | null;
+    poste_comptable_libelle?: string | null;
     cree_par?: string | null;
   },
   fmtDate: (d: string) => string
@@ -147,6 +154,9 @@ export function buildReglementExportRow(
     date: fmtDate(row.date),
     statut: row.displayStatut,
     mode_paiement: row.mode_paiement,
+    numero_compte: row.numero_compte,
+    banque_fournisseur: row.banque_fournisseur,
+    poste_comptable: row.poste_comptable_libelle?.trim() || "Non renseigné",
     cree_par: row.cree_par,
   };
 }

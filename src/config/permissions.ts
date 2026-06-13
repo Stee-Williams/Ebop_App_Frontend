@@ -27,6 +27,7 @@ const ROLE_ROUTE_PREFIXES: Record<Exclude<AppRole, "super_admin">, string[]> = {
   controleur_budgetaire_principal: [
     "/acceuil/lignes-budgetaires",
     "/acceuil/administrations",
+    "/acceuil/postes-comptables",
   ],
   assistant_gestionnaire: [
     "/acceuil",
@@ -124,6 +125,10 @@ export function canManageLignesBudgetaires(role: string): boolean {
 
 export function canManageAdministrations(role: string): boolean {
   return canManageLignesBudgetaires(role);
+}
+
+export function canManagePostesComptables(role: string): boolean {
+  return canManageAdministrations(role);
 }
 
 export function canManageReglements(role: string): boolean {
@@ -240,6 +245,12 @@ const ALL_NAV_ITEMS: NavItemConfig[] = [
     to: "/acceuil/administrations",
     match: (path) => path.startsWith("/acceuil/administrations"),
   },
+  {
+    id: "postes-comptables",
+    label: "Postes comptables",
+    to: "/acceuil/postes-comptables",
+    match: (path) => path.startsWith("/acceuil/postes-comptables"),
+  },
 ];
 
 export function getNavItemsForRole(role: string): NavItemConfig[] {
@@ -293,6 +304,9 @@ export function getNavItemsForRole(role: string): NavItemConfig[] {
       }
       if (item.id === "administrations") {
         return canManageAdministrations(role);
+      }
+      if (item.id === "postes-comptables") {
+        return canManagePostesComptables(role);
       }
       if (item.disabled) return canManageEngagements(role);
       return canAccessPath(role, item.to);

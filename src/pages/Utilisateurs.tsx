@@ -301,14 +301,14 @@ export default function Utilisateurs() {
                 paginatedUsers.map((user) => (
                   <TableRow
                     key={user.id}
-                    className="transition-colors hover:bg-indigo-50/30"
+                    className="table-row-interactive"
                   >
-                    <TableCell className="font-medium text-indigo-600">
+                    <TableCell className="font-medium text-primary">
                       {user.matricule}
                     </TableCell>
                     <TableCell>{user.nom}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-indigo-600">
+                      <Badge variant="outline" className="text-primary">
                         {user.role ? getRoleLabel(user.role) : "—"}
                       </Badge>
                     </TableCell>
@@ -326,7 +326,7 @@ export default function Utilisateurs() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+                          className="table-action-btn"
                           title="Consulter"
                           onClick={() => setSelected(user)}
                         >

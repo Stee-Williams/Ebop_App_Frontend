@@ -21,6 +21,7 @@ import BudgetConsultation from "./pages/BudgetConsultation";
 import Utilisateurs from "./pages/Utilisateurs";
 import LignesBudgetaires from "./pages/LignesBudgetaires";
 import Administrations from "./pages/Administrations";
+import PostesComptables from "./pages/PostesComptables";
 import AppLayout from "./components/layout/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -83,6 +84,7 @@ const App = () => (
             <Route path="utilisateurs" element={<Utilisateurs />} />
             <Route path="lignes-budgetaires" element={<LignesBudgetaires />} />
             <Route path="administrations" element={<Administrations />} />
+            <Route path="postes-comptables" element={<PostesComptables />} />
             <Route path="utilisateurs/inscription" element={<Inscription embedded />} />
             <Route path="profil" element={<MonProfil />} />
             <Route path="parametres" element={<Parametres />} />

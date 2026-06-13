@@ -156,10 +156,10 @@ const ProfileForm = ({
           </p>
         </div>
 
-        <div className="mb-6 rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50/80 via-teal-50/50 to-indigo-50/80 p-4">
+        <div className="mb-6 rounded-xl border border-primary/10 bg-gradient-to-r from-primary/5 via-accent/5 to-primary/5 p-4">
           <div className="flex items-start gap-3">
-            <div className="rounded-lg bg-indigo-100 p-2">
-              <Search className="h-4 w-4 text-indigo-600" />
+            <div className="rounded-lg bg-primary/10 p-2">
+              <Search className="h-4 w-4 text-primary" />
             </div>
             <div>
               <p className="text-sm font-semibold text-primary">Information</p>

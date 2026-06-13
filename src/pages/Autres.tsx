@@ -4,8 +4,8 @@ import {
   Building2,
   Calendar,
   Eye,
+  FileDown,
   MapPin,
-  Printer,
   Search,
   UserCheck,
 } from "lucide-react";
@@ -41,6 +41,7 @@ const PAGE_SIZE = 6;
 import {
   getAdministrations,
   getEngagements,
+  getEngagementById,
   getProvinces,
   getUnitesOperationnelles,
   getUserSession,
@@ -52,6 +53,10 @@ import {
   type UniteOperationnelleItem,
   type UserListItem,
 } from "@/config/app";
+import {
+  buildExportRow,
+  exportEngagementsPdf,
+} from "@/lib/exportEngagementsPdf";
 import { useToast } from "@/hooks/use-toast";
 
 const statusClass: Record<string, string> = {
@@ -95,7 +100,50 @@ export default function AutresEngagements() {
   const [filtreStatut, setFiltreStatut] = useState("tous");
   const [filtreControleur, setFiltreControleur] = useState("tous");
   const [selected, setSelected] = useState<EngagementItem | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [exportingId, setExportingId] = useState<number | null>(null);
+
+  const openDetail = async (item: EngagementItem) => {
+    setSelected(item);
+    setDetailLoading(true);
+    try {
+      const fresh = await getEngagementById(item.id);
+      setSelected(fresh);
+    } catch {
+      toast({
+        title: "Détail incomplet",
+        description: "Impossible de recharger le détail depuis le serveur.",
+        variant: "destructive",
+      });
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleExportPdf = async (item: EngagementItem) => {
+    setExportingId(item.id);
+    try {
+      await exportEngagementsPdf({
+        title: "Fiche d'engagement budgétaire",
+        subtitle: `Engagement n° ${item.numero}`,
+        exportedBy: user?.nom,
+        rows: [buildExportRow(item, fmtDate, (s) => s)],
+      });
+      toast({
+        title: "Export PDF",
+        description: "Le fichier a été téléchargé.",
+      });
+    } catch {
+      toast({
+        title: "Erreur",
+        description: "Impossible de générer le PDF.",
+        variant: "destructive",
+      });
+    } finally {
+      setExportingId(null);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -477,9 +525,9 @@ export default function AutresEngagements() {
                 paginatedData.map((item) => (
                   <TableRow
                     key={item.id}
-                    className="transition-colors hover:bg-indigo-50/30"
+                    className="table-row-interactive"
                   >
-                    <TableCell className="font-medium text-indigo-600">
+                    <TableCell className="font-medium text-primary">
                       {item.numero}
                     </TableCell>
                     <TableCell>{fmtDate(item.date)}</TableCell>
@@ -488,7 +536,7 @@ export default function AutresEngagements() {
                       {item.province_nom && (
                         <Badge
                           variant="outline"
-                          className="ml-1.5 text-[10px] text-indigo-600"
+                          className="ml-1.5 text-[10px] text-primary"
                         >
                           {item.province_nom}
                         </Badge>
@@ -515,17 +563,20 @@ export default function AutresEngagements() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
-                          onClick={() => setSelected(item)}
+                          className="table-action-btn"
+                          onClick={() => openDetail(item)}
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+                          className="table-action-btn"
+                          disabled={exportingId === item.id}
+                          onClick={() => handleExportPdf(item)}
+                          title="Télécharger le PDF"
                         >
-                          <Printer className="h-4 w-4" />
+                          <FileDown className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>
@@ -571,6 +622,11 @@ export default function AutresEngagements() {
                 { label: "Statut", value: selected.statut },
                 { label: "Demandeur", value: selected.demandeur ?? "—" },
                 { label: "Fournisseur", value: selected.fournisseur ?? "—" },
+                {
+                  label: "Poste comptable",
+                  value:
+                    selected.poste_comptable_libelle?.trim() || "Non renseigné",
+                },
               ].map(({ label, value }) => (
                 <div
                   key={label}
@@ -582,9 +638,14 @@ export default function AutresEngagements() {
               ))}
             </div>
           )}
-          <Button className="mt-2 w-full gap-2" variant="institution">
-            <Printer className="h-4 w-4" />
-            Imprimer l&apos;engagement
+          <Button
+            className="mt-2 w-full gap-2"
+            variant="institution"
+            disabled={!selected || exportingId === selected.id}
+            onClick={() => selected && handleExportPdf(selected)}
+          >
+            <FileDown className="h-4 w-4" />
+            Télécharger le PDF
           </Button>
         </DialogContent>
       </Dialog>

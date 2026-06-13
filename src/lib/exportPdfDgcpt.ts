@@ -265,15 +265,12 @@ export function drawDgcptSignatureBlock(
   ],
   cachetDataUrl: string | null = null
 ): void {
-  const { left, right } = DGCPT_MARGINS;
+  const { left, right, bottom } = DGCPT_MARGINS;
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  let y = startY + 8;
-
-  if (y > pageHeight - 55) {
-    doc.addPage();
-    y = DGCPT_MARGINS.top + 10;
-  }
+  const signatureBlockHeight = 34;
+  const maxStartY = pageHeight - bottom - signatureBlockHeight;
+  let y = Math.min(startY + 6, maxStartY);
 
   const lieu = "Libreville";
   const dateLong = new Date().toLocaleDateString("fr-FR", {
@@ -286,11 +283,11 @@ export function drawDgcptSignatureBlock(
   doc.setFont("helvetica", "normal");
   doc.setTextColor(0, 0, 0);
   doc.text(`Fait à ${lieu}, le ${dateLong}`, left, y);
-  y += 10;
+  y += 8;
 
   const contentWidth = pageWidth - left - right;
 
-  if (signatures.length === 2) {
+  if (signatures.length === 2 && cachetDataUrl) {
     const stampW = 28;
     const stampH = 28;
     const gap = 8;
@@ -303,6 +300,13 @@ export function drawDgcptSignatureBlock(
     drawSignatureColumn(doc, leftX, sigW, y, signatures[0][0], signatures[0][1]);
     drawCachetBetweenSignatures(doc, stampX, stampY, stampW, stampH, cachetDataUrl);
     drawSignatureColumn(doc, rightX, sigW, y, signatures[1][0], signatures[1][1]);
+    return;
+  }
+
+  if (signatures.length === 2) {
+    const sigW = contentWidth / 2;
+    drawSignatureColumn(doc, left, sigW, y, signatures[0][0], signatures[0][1]);
+    drawSignatureColumn(doc, left + sigW, sigW, y, signatures[1][0], signatures[1][1]);
     return;
   }
 

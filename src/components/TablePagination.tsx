@@ -83,7 +83,7 @@ export function TablePagination({
                     className={cn(
                       "h-9 w-9",
                       token === currentPage &&
-                        "border-indigo-200 bg-indigo-600 text-white hover:bg-indigo-600 hover:text-white"
+                        "pagination-active"
                     )}
                     onClick={(e) => {
                       e.preventDefault();

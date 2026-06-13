@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { PageHeader, PageShell } from "@/components/layout/PageShell";
+import { FournisseurCombobox } from "@/components/FournisseurCombobox";
 import { useToast } from "@/hooks/use-toast";
 import {
   createEngagement,
@@ -54,7 +55,8 @@ type FormState = {
   budget: string;
   ligneBudgetaire: string;
   posteComptable: string;
-  fournisseur: string;
+  fournisseurNom: string;
+  fournisseurId: string;
 };
 
 const initialForm: FormState = {
@@ -68,7 +70,8 @@ const initialForm: FormState = {
   budget: "",
   ligneBudgetaire: "",
   posteComptable: "",
-  fournisseur: "",
+  fournisseurNom: "",
+  fournisseurId: "",
 };
 
 type SectionHeaderProps = {
@@ -79,7 +82,7 @@ type SectionHeaderProps = {
 function SectionHeader({ icon: Icon, title }: SectionHeaderProps) {
   return (
     <div className="mb-4 flex items-center gap-3">
-      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/5 text-primary">
         <Icon className="h-4 w-4" />
       </div>
       <h2 className="font-semibold text-gray-900">{title}</h2>
@@ -225,6 +228,14 @@ export default function EngagementForm() {
     );
   }, [lignes, form.budget]);
 
+  const filteredPostes = useMemo(
+    () =>
+      postes.filter(
+        (p) => !form.province || String(p.province_id) === form.province
+      ),
+    [postes, form.province]
+  );
+
   const selectedBudget = useMemo(
     () => budgets.find((b) => String(b.id) === form.budget),
     [budgets, form.budget]
@@ -239,6 +250,16 @@ export default function EngagementForm() {
         next.uo = "";
         next.budget = "";
         next.ligneBudgetaire = "";
+        if (
+          next.posteComptable &&
+          !postes.some(
+            (p) =>
+              String(p.id) === next.posteComptable &&
+              String(p.province_id) === value
+          )
+        ) {
+          next.posteComptable = "";
+        }
       } else if (name === "administration") {
         next.uo = "";
         next.budget = "";
@@ -275,6 +296,24 @@ export default function EngagementForm() {
       return;
     }
 
+    if (!form.ligneBudgetaire) {
+      toast({
+        title: "Ligne budgétaire requise",
+        description: "Sélectionnez une ligne budgétaire.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!form.posteComptable) {
+      toast({
+        title: "Poste comptable requis",
+        description: "Sélectionnez le poste comptable de rattachement.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const session = getUserSession();
     setSubmitting(true);
 
@@ -285,15 +324,15 @@ export default function EngagementForm() {
         montant: Number(form.montant),
         date: form.date,
         statut: "En attente",
-        ligne_budgetaire_id: form.ligneBudgetaire
-          ? Number(form.ligneBudgetaire)
+        ligne_budgetaire_id: Number(form.ligneBudgetaire),
+        poste_comptable_id: Number(form.posteComptable),
+        fournisseur_id: form.fournisseurId
+          ? Number(form.fournisseurId)
           : undefined,
-        poste_comptable_id: form.posteComptable
-          ? Number(form.posteComptable)
-          : undefined,
-        fournisseur_id: form.fournisseur
-          ? Number(form.fournisseur)
-          : undefined,
+        fournisseur_nom:
+          !form.fournisseurId && form.fournisseurNom.trim()
+            ? form.fournisseurNom.trim()
+            : undefined,
         user_id: session?.id,
       });
 
@@ -301,6 +340,14 @@ export default function EngagementForm() {
         title: "Engagement enregistré",
         description: `Dossier ${form.numero} créé avec succès.`,
       });
+      if (!form.fournisseurId && form.fournisseurNom.trim()) {
+        try {
+          const updated = await getFournisseurs();
+          setFournisseurs(updated);
+        } catch {
+          // liste fournisseurs optionnelle après création
+        }
+      }
       const currentUser = getUserSession();
       const defaultProvince = currentUser?.province_id
         ? String(currentUser.province_id)
@@ -371,7 +418,7 @@ export default function EngagementForm() {
                     type="text"
                     value={form.numero}
                     readOnly
-                    className={cn(inputClass, "bg-slate-50 font-mono text-indigo-700")}
+                    className={cn(inputClass, "bg-slate-50 font-mono text-primary")}
                   />
                 </Field>
                 <Field label="Titre" htmlFor="titre">
@@ -510,24 +557,51 @@ export default function EngagementForm() {
                     </p>
                   )}
                 </Field>
-                <Field label="Poste comptable" htmlFor="posteComptable">
+                <Field label="Poste comptable *" htmlFor="posteComptable">
                   {renderSelect(
                     "posteComptable",
-                    "Sélectionner...",
-                    postes.map((p) => ({
+                    form.province
+                      ? filteredPostes.length > 0
+                        ? "Sélectionner..."
+                        : "Aucun poste pour cette province"
+                      : "Choisir une province d'abord",
+                    filteredPostes.map((p) => ({
                       value: String(p.id),
                       label: p.libelle,
-                    }))
+                    })),
+                    !form.province || filteredPostes.length === 0
+                  )}
+                  {form.province && filteredPostes.length === 0 && (
+                    <p className="text-xs text-amber-600">
+                      Aucun poste comptable n&apos;est disponible pour cette
+                      province.
+                    </p>
                   )}
                 </Field>
                 <Field label="Fournisseur" htmlFor="fournisseur">
-                  {renderSelect(
-                    "fournisseur",
-                    "Sélectionner...",
-                    fournisseurs.map((f) => ({
+                  <FournisseurCombobox
+                    id="fournisseur"
+                    options={fournisseurs.map((f) => ({
                       value: String(f.id),
                       label: f.nom,
-                    }))
+                    }))}
+                    value={form.fournisseurNom}
+                    selectedId={form.fournisseurId}
+                    onChange={({ value, selectedId }) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        fournisseurNom: value,
+                        fournisseurId: selectedId,
+                      }))
+                    }
+                    disabled={loading}
+                    placeholder="Sélectionner ou saisir..."
+                  />
+                  {form.fournisseurNom && !form.fournisseurId && (
+                    <p className="text-xs text-muted-foreground">
+                      Nouveau fournisseur « {form.fournisseurNom} » — sera
+                      enregistré à la validation.
+                    </p>
                   )}
                 </Field>
               </div>

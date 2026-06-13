@@ -350,16 +350,21 @@ export default function VisaEngagements() {
     { label: "Date", value: fmtDate(row.date) },
     { label: "Montant", value: fmt(row.montant), highlight: true },
     { label: "Statut", value: normalizeStatut(row.statut) },
-    { label: "Demandeur", value: row.demandeur },
+    {
+      label: "Demandeur",
+      value: row.demandeur ?? (normalizeStatut(row.statut) === "En attente" ? "—" : null),
+    },
     { label: "Fournisseur", value: row.fournisseur },
     { label: "Province", value: row.province_nom },
     { label: "Administration", value: row.administration_nom },
     { label: "Unité opérationnelle", value: row.unite_operationnelle_nom },
     { label: "Ligne budgétaire", value: row.ligne_budgetaire_libelle },
-    { label: "Poste comptable", value: row.poste_comptable_libelle },
+    {
+      label: "Poste comptable",
+      value: row.poste_comptable_libelle?.trim() || "Non renseigné",
+    },
     ...(normalizeStatut(row.statut) === "Visé"
       ? [
-          { label: "Visé par", value: row.vise_par },
           {
             label: "Date de visa",
             value: row.date_visa ? fmtDate(row.date_visa.slice(0, 10)) : null,
@@ -452,7 +457,7 @@ export default function VisaEngagements() {
       <Card className="overflow-hidden border-0 bg-white/90 shadow-sm backdrop-blur-sm">
         <div className="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <Wallet className="h-4 w-4 text-indigo-600" />
+            <Wallet className="h-4 w-4 text-primary" />
             <h2 className="font-semibold text-gray-900">Registre des dossiers</h2>
             <span className="text-sm text-muted-foreground">
               {loading
@@ -462,7 +467,7 @@ export default function VisaEngagements() {
           </div>
           <Button
             size="sm"
-            className="gap-2 bg-slate-800 hover:bg-slate-900"
+            className="gap-2 bg-primary hover:bg-primary/90"
             onClick={handleExport}
             disabled={exporting || loading || filteredRows.length === 0}
           >
@@ -523,10 +528,10 @@ export default function VisaEngagements() {
                       onClick={() => setActiveId(row.id)}
                       className={cn(
                         "cursor-pointer transition-colors",
-                        activeId === row.id && "bg-indigo-50/60"
+                        activeId === row.id && "bg-primary/5"
                       )}
                     >
-                      <TableCell className="font-semibold text-indigo-600">
+                      <TableCell className="font-semibold text-primary">
                         {row.numero}
                       </TableCell>
                       <TableCell>{fmtDate(row.date)}</TableCell>
@@ -553,7 +558,7 @@ export default function VisaEngagements() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700"
+                            className="table-action-btn"
                             onClick={(e) => {
                               e.stopPropagation();
                               setDetailRow(row);
@@ -643,7 +648,7 @@ export default function VisaEngagements() {
                   <p
                     className={cn(
                       "mt-1 text-sm text-gray-900",
-                      field.highlight && "font-bold text-indigo-600",
+                      field.highlight && "font-bold text-primary",
                       field.full && "whitespace-pre-wrap"
                     )}
                   >
@@ -688,7 +693,7 @@ export default function VisaEngagements() {
                       {pendingAction.row.numero}
                     </p>
                     <p className="mt-1 text-gray-700">{pendingLabel}</p>
-                    <p className="mt-2 font-medium text-indigo-600">
+                    <p className="mt-2 font-medium text-primary">
                       {fmt(pendingAction.row.montant)}
                     </p>
                   </div>

@@ -48,8 +48,8 @@ const tabClass = (isActive: boolean, disabled?: boolean) =>
     disabled
       ? "cursor-not-allowed text-gray-400 opacity-50"
       : isActive
-        ? "bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-100"
-        : "text-gray-600 hover:bg-gray-50 hover:text-indigo-600"
+        ? "nav-tab-active"
+        : "nav-tab-idle"
   );
 
 function DisabledNavTab({ label }: { label: string }) {
@@ -110,7 +110,7 @@ function NavTab({ section }: { section: NavSection }) {
             className={cn(
               "cursor-pointer",
               location.pathname === child.to &&
-                "bg-indigo-50 font-medium text-indigo-700"
+                "bg-primary/5 font-medium text-primary"
             )}
           >
             {child.label}
@@ -152,7 +152,7 @@ export default function AppLayout() {
       <header className="z-50 border-b border-gray-200/80 bg-white/95 shadow-sm backdrop-blur-md">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-2.5 sm:px-6">
           <div className="flex min-w-0 flex-1 items-center gap-5">
-            <div className="shrink-0 bg-gradient-to-r from-indigo-700 to-teal-600 bg-clip-text text-lg font-bold tracking-tight text-transparent">
+            <div className="shrink-0 bg-gradient-to-r from-primary to-accent bg-clip-text text-lg font-bold tracking-tight text-transparent">
               EBOP
             </div>
 
@@ -167,10 +167,10 @@ export default function AppLayout() {
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="flex shrink-0 items-center gap-2 rounded-full border border-gray-200/80 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md"
+                className="flex shrink-0 items-center gap-2 rounded-full border border-gray-200/80 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm transition-all hover:border-primary/20 hover:shadow-md"
               >
-                <Avatar className="h-8 w-8 ring-2 ring-indigo-100">
-                  <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-teal-500 text-xs font-semibold text-white">
+                <Avatar className="h-8 w-8 ring-2 ring-primary/10">
+                  <AvatarFallback className="bg-gradient-to-br from-primary to-accent text-xs font-semibold text-white">
                     {user ? getInitials(user.nom) : "?"}
                   </AvatarFallback>
                 </Avatar>

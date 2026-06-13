@@ -41,13 +41,13 @@
     --institution-green: 145 60% 40%;
 
     --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-foreground: 215 50% 15%;
+    --sidebar-primary: 215 60% 22%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 25% 95%;
+    --sidebar-accent-foreground: 215 60% 22%;
+    --sidebar-border: 214 25% 88%;
+    --sidebar-ring: 215 60% 22%;
   }
 
   .dark {
@@ -130,4 +130,30 @@
 
 .animate-slide-in-right {
   animation: slide-in-right 0.6s ease-out forwards;
+}
+
+@layer components {
+  .table-row-interactive {
+    @apply transition-colors hover:bg-primary/5;
+  }
+
+  .table-link {
+    @apply font-medium text-primary;
+  }
+
+  .table-action-btn {
+    @apply h-8 w-8 rounded-lg bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary;
+  }
+
+  .pagination-active {
+    @apply border-primary/20 bg-primary text-white hover:bg-primary hover:text-white;
+  }
+
+  .nav-tab-active {
+    @apply bg-primary/5 text-primary shadow-sm ring-1 ring-primary/10;
+  }
+
+  .nav-tab-idle {
+    @apply text-gray-600 hover:bg-gray-50 hover:text-primary;
+  }
 }

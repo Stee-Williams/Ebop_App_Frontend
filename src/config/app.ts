@@ -98,6 +98,7 @@ export {
   canAccessPath,
   canManageEngagements,
   canManageAdministrations,
+  canManagePostesComptables,
   canManageLignesBudgetaires,
   canReadBudget,
   canManageReglements,
@@ -620,6 +621,17 @@ export type PosteComptableItem = {
   code: string | null;
   libelle: string;
   description: string | null;
+  type: string | null;
+  province_id: number | null;
+  province_nom: string | null;
+};
+
+export type CreatePosteComptablePayload = {
+  code?: string;
+  libelle: string;
+  description?: string;
+  type?: string;
+  province_id?: number | null;
 };
 
 export type FournisseurItem = {
@@ -767,8 +779,79 @@ export async function deleteLigneBudgetaire(
 }
 export const getPostesComptables = () =>
   fetchList<PosteComptableItem>("/api/postes-comptables");
+
+export async function createPosteComptable(
+  payload: CreatePosteComptablePayload
+): Promise<{ success: boolean; message?: string; data?: PosteComptableItem }> {
+  const response = await authFetch(`${API_BASE_URL}/api/postes-comptables`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la création");
+  }
+
+  return data;
+}
+
+export async function updatePosteComptable(
+  id: number,
+  payload: Partial<CreatePosteComptablePayload>
+): Promise<{ success: boolean; message?: string; data?: PosteComptableItem }> {
+  const response = await authFetch(`${API_BASE_URL}/api/postes-comptables/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la mise à jour");
+  }
+
+  return data;
+}
+
+export async function deletePosteComptable(
+  id: number
+): Promise<{ success: boolean; message?: string }> {
+  const response = await authFetch(`${API_BASE_URL}/api/postes-comptables/${id}`, {
+    method: "DELETE",
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la suppression");
+  }
+
+  return data;
+}
 export const getFournisseurs = () =>
   fetchList<FournisseurItem>("/api/fournisseurs");
+
+export async function createFournisseur(payload: {
+  nom: string;
+  adresse?: string;
+  telephone?: string;
+  nif?: string;
+}): Promise<{ success: boolean; message?: string; data?: FournisseurItem }> {
+  const response = await authFetch(`${API_BASE_URL}/api/fournisseurs`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Erreur lors de la création du fournisseur");
+  }
+
+  return data;
+}
 
 /* ==========================================
 ENGAGEMENTS
@@ -783,6 +866,7 @@ export type EngagementItem = {
   objet?: string | null;
   titre?: string | null;
   demandeur?: string | null;
+  saisi_par?: string | null;
   user_id?: number | null;
   fournisseur?: string | null;
   province_id: number | null;
@@ -792,6 +876,7 @@ export type EngagementItem = {
   unite_operationnelle_id: number | null;
   unite_operationnelle_nom: string | null;
   poste_comptable_libelle?: string | null;
+  poste_comptable_id?: number | null;
   ligne_budgetaire_libelle?: string | null;
   vise_par?: string | null;
   date_visa?: string | null;
@@ -811,10 +896,27 @@ export type CreateEngagementPayload = {
   date: string;
   statut: string;
   ligne_budgetaire_id?: number;
-  poste_comptable_id?: number;
+  poste_comptable_id: number;
   fournisseur_id?: number;
+  fournisseur_nom?: string;
   user_id?: number;
 };
+
+export async function getEngagementById(id: number): Promise<EngagementItem> {
+  const response = await authFetch(`${API_BASE_URL}/api/engagements/${id}`);
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Engagement introuvable");
+  }
+
+  if (data.data && typeof data.data === "object") {
+    return data.data as EngagementItem;
+  }
+
+  const { success: _success, message: _message, ...engagement } = data;
+  return engagement as EngagementItem;
+}
 
 export async function getNextEngagementNumero(
   annee?: number
@@ -847,6 +949,7 @@ export type CreateEngagementResponse = {
 export type UpdateEngagementPayload = {
   statut?: string;
   motif_rejet?: string;
+  poste_comptable_id?: number | null;
 };
 
 export async function updateEngagement(
@@ -903,6 +1006,8 @@ export type ReglementItem = {
   reference: string;
   montant: number;
   mode_paiement: string;
+  numero_compte?: string | null;
+  banque_fournisseur?: string | null;
   date_reglement: string;
   created_at?: string | null;
   cree_par?: string | null;
@@ -912,6 +1017,7 @@ export type ReglementItem = {
   engagement_statut?: string;
   fournisseur?: string | null;
   demandeur?: string | null;
+  saisi_par?: string | null;
   user_id?: number | null;
   province_id: number | null;
   province_nom: string | null;
@@ -930,6 +1036,8 @@ export type CreateReglementPayload = {
   engagement_id: number;
   mode_paiement: string;
   date_reglement: string;
+  numero_compte?: string;
+  banque_fournisseur?: string;
 };
 
 export async function createReglement(

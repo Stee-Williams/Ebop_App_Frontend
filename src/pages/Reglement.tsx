@@ -104,6 +104,9 @@ type ReglementRow = {
   ligne_budgetaire_libelle?: string | null;
   unite_operationnelle_id?: number | null;
   unite_operationnelle_nom?: string | null;
+  poste_comptable_libelle?: string | null;
+  numero_compte?: string | null;
+  banque_fournisseur?: string | null;
   displayStatut: "En attente de règlement" | "Réglé";
 };
 
@@ -137,6 +140,8 @@ export default function Reglements() {
     engagement_id: "",
     mode_paiement: "Virement",
     date_reglement: new Date().toISOString().split("T")[0],
+    numero_compte: "",
+    banque_fournisseur: "",
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [detailRow, setDetailRow] = useState<ReglementRow | null>(null);
@@ -199,6 +204,7 @@ export default function Reglements() {
         ligne_budgetaire_libelle: e.ligne_budgetaire_libelle,
         unite_operationnelle_id: e.unite_operationnelle_id,
         unite_operationnelle_nom: e.unite_operationnelle_nom,
+        poste_comptable_libelle: e.poste_comptable_libelle,
         displayStatut: "En attente de règlement" as const,
       })),
       ...regles.map((r) => ({
@@ -221,6 +227,9 @@ export default function Reglements() {
         ligne_budgetaire_libelle: r.ligne_budgetaire_libelle,
         unite_operationnelle_id: r.unite_operationnelle_id,
         unite_operationnelle_nom: r.unite_operationnelle_nom,
+        poste_comptable_libelle: r.poste_comptable_libelle,
+        numero_compte: r.numero_compte,
+        banque_fournisseur: r.banque_fournisseur,
         displayStatut: "Réglé" as const,
       })),
     ],
@@ -367,11 +376,28 @@ export default function Reglements() {
       });
       return;
     }
+    if (form.mode_paiement === "Virement") {
+      if (!form.numero_compte.trim() || !form.banque_fournisseur.trim()) {
+        toast({
+          title: "Informations bancaires requises",
+          description:
+            "Le numéro de compte et la banque du fournisseur sont obligatoires pour un virement.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
     try {
       await createReglement({
         engagement_id: Number(form.engagement_id),
         mode_paiement: form.mode_paiement,
         date_reglement: form.date_reglement,
+        ...(form.mode_paiement === "Virement"
+          ? {
+              numero_compte: form.numero_compte.trim(),
+              banque_fournisseur: form.banque_fournisseur.trim(),
+            }
+          : {}),
       });
       toast({
         title: "Règlement enregistré",
@@ -382,6 +408,8 @@ export default function Reglements() {
         engagement_id: "",
         mode_paiement: "Virement",
         date_reglement: new Date().toISOString().split("T")[0],
+        numero_compte: "",
+        banque_fournisseur: "",
       });
       fetchData();
     } catch (err) {
@@ -399,7 +427,7 @@ export default function Reglements() {
       label: "Total",
       value: stats.total,
       icon: Receipt,
-      gradient: "from-indigo-500 to-blue-600",
+      gradient: "from-primary to-accent",
     },
     {
       label: "En attente",
@@ -431,11 +459,21 @@ export default function Reglements() {
     { label: "Statut", value: row.displayStatut },
     { label: "Date", value: fmtDate(row.date) },
     { label: "Mode de paiement", value: row.mode_paiement ?? "—" },
+    ...(row.mode_paiement === "Virement"
+      ? [
+          { label: "N° de compte", value: row.numero_compte ?? "—" },
+          { label: "Banque du fournisseur", value: row.banque_fournisseur ?? "—" },
+        ]
+      : []),
     { label: "Demandeur", value: row.demandeur },
     { label: "Province", value: row.province_nom },
     { label: "Administration", value: row.administration_nom },
     { label: "Unité opérationnelle", value: row.unite_operationnelle_nom },
     { label: "Ligne budgétaire", value: row.ligne_budgetaire_libelle },
+    {
+      label: "Poste comptable",
+      value: row.poste_comptable_libelle?.trim() || "Non renseigné",
+    },
     { label: "Enregistré par", value: row.cree_par ?? "—" },
   ];
 
@@ -635,9 +673,9 @@ export default function Reglements() {
                 paginatedRows.map((r) => (
                   <TableRow
                     key={`${r.id}-${r.displayStatut}`}
-                    className="transition-colors hover:bg-indigo-50/30"
+                    className="table-row-interactive"
                   >
-                    <TableCell className="font-semibold text-indigo-600">
+                    <TableCell className="font-semibold text-primary">
                       {r.numero}
                     </TableCell>
                     <TableCell>{r.objet || r.titre || "—"}</TableCell>
@@ -662,7 +700,7 @@ export default function Reglements() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700"
+                          className="table-action-btn"
                           onClick={() => setDetailRow(r)}
                           title="Voir le détail"
                         >
@@ -671,7 +709,7 @@ export default function Reglements() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700"
+                          className="table-action-btn"
                           onClick={() => handleExportPdf(r)}
                           title="Exporter en PDF"
                         >
@@ -728,7 +766,7 @@ export default function Reglements() {
                     <p
                       className={cn(
                         "mt-1 text-sm text-gray-900",
-                        field.highlight && "font-bold text-indigo-600"
+                        field.highlight && "font-bold text-primary"
                       )}
                     >
                       {field.value ?? "—"}
@@ -793,7 +831,13 @@ export default function Reglements() {
               <Select
                 value={form.mode_paiement}
                 onValueChange={(v) =>
-                  setForm({ ...form, mode_paiement: v })
+                  setForm({
+                    ...form,
+                    mode_paiement: v,
+                    numero_compte: v === "Virement" ? form.numero_compte : "",
+                    banque_fournisseur:
+                      v === "Virement" ? form.banque_fournisseur : "",
+                  })
                 }
               >
                 <SelectTrigger className="h-11 border-gray-200">
@@ -806,6 +850,36 @@ export default function Reglements() {
                 </SelectContent>
               </Select>
             </div>
+            {form.mode_paiement === "Virement" && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wide text-primary/80">
+                    N° de compte du fournisseur *
+                  </Label>
+                  <Input
+                    value={form.numero_compte}
+                    onChange={(e) =>
+                      setForm({ ...form, numero_compte: e.target.value })
+                    }
+                    placeholder="Ex. 40001234567890123456789"
+                    className="h-11 border-gray-200 font-mono"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold uppercase tracking-wide text-primary/80">
+                    Banque du fournisseur *
+                  </Label>
+                  <Input
+                    value={form.banque_fournisseur}
+                    onChange={(e) =>
+                      setForm({ ...form, banque_fournisseur: e.target.value })
+                    }
+                    placeholder="Ex. BGFIBank Gabon"
+                    className="h-11 border-gray-200"
+                  />
+                </div>
+              </>
+            )}
             <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase tracking-wide text-primary/80">
                 Date de règlement *

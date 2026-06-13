@@ -47,7 +47,7 @@ const QUICK_ACTIONS = [
     desc: "Valider les dossiers en attente",
     to: "/acceuil/engagements/viser",
     icon: FileCheck,
-    color: "text-indigo-600 bg-indigo-50",
+    color: "text-primary bg-primary/5",
   },
   {
     title: "Créer un engagement",
@@ -154,7 +154,7 @@ function computeStats(
       value: String(actifs),
       trend: `${actifs} en attente · ${provinceLabel}`,
       icon: FileCheck,
-      gradient: "from-indigo-500 to-blue-600",
+      gradient: "from-primary to-accent",
     },
     {
       label: "Règlements du mois",
@@ -248,7 +248,7 @@ const HomeContent = () => {
   return (
     <div className="relative min-h-full overflow-hidden">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-32 -top-32 h-96 w-96 rounded-full bg-indigo-100/60 blur-3xl" />
+        <div className="absolute -left-32 -top-32 h-96 w-96 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute -right-24 top-20 h-80 w-80 rounded-full bg-teal-100/50 blur-3xl" />
         <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-amber-50/80 blur-3xl" />
       </div>
@@ -331,7 +331,7 @@ const HomeContent = () => {
                     "group flex items-center gap-4 rounded-xl border p-4 text-left transition-all duration-200",
                     action.disabled
                       ? "cursor-not-allowed border-gray-200 bg-gray-50 opacity-60"
-                      : "border-gray-100 bg-white shadow-sm hover:border-indigo-100 hover:shadow-md"
+                      : "border-gray-100 bg-white shadow-sm hover:border-primary/10 hover:shadow-md"
                   )}
                 >
                   <div
@@ -345,7 +345,7 @@ const HomeContent = () => {
                         "font-semibold",
                         action.disabled
                           ? "text-gray-400"
-                          : "text-gray-900 group-hover:text-indigo-700"
+                          : "text-gray-900 group-hover:text-primary"
                       )}
                     >
                       {action.title}
@@ -360,7 +360,7 @@ const HomeContent = () => {
                     </p>
                   </div>
                   {!action.disabled && (
-                    <ArrowRight className="h-4 w-4 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5 group-hover:text-indigo-500" />
+                    <ArrowRight className="h-4 w-4 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5 group-hover:text-accent" />
                   )}
                 </div>
               );
