@@ -49,10 +49,8 @@ import {
   getProvinces,
   getReglements,
   getUnitesOperationnelles,
-  getUserSession,
   getUsers,
   isControleurBudgetaire,
-  isSuperAdmin,
   type EngagementItem,
   type ProvinceItem,
   type ReglementItem,
@@ -60,6 +58,7 @@ import {
   type UserListItem,
 } from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
+import { useProvinceScope } from "@/hooks/useProvinceScope";
 import {
   buildReglementExportRow,
   exportReglementPdf,
@@ -119,7 +118,8 @@ type DetailField = {
 
 export default function Reglements() {
   const { toast } = useToast();
-  const sessionUser = getUserSession();
+  const { canSelectAll, defaultFilter, filterProvinces, guardFilter } =
+    useProvinceScope();
   const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [controleurs, setControleurs] = useState<UserListItem[]>([]);
   const [unites, setUnites] = useState<UniteOperationnelleItem[]>([]);
@@ -127,11 +127,7 @@ export default function Reglements() {
   const [regles, setRegles] = useState<ReglementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filtreProvince, setFiltreProvince] = useState(
-    sessionUser && !isSuperAdmin(sessionUser.role) && sessionUser.province_id
-      ? String(sessionUser.province_id)
-      : "tous"
-  );
+  const [filtreProvince, setFiltreProvince] = useState(defaultFilter);
   const [filtreControleur, setFiltreControleur] = useState("tous");
   const [filtreUo, setFiltreUo] = useState("tous");
   const [filtreStatut, setFiltreStatut] = useState("Tous");
@@ -162,7 +158,7 @@ export default function Reglements() {
 
       setEnAttente(visesData);
       setRegles(reglementsData);
-      setProvinces(provincesData);
+      setProvinces(filterProvinces(provincesData));
       setUnites(unitesData);
       setControleurs(
         usersData.filter((u) => u.role && isControleurBudgetaire(u.role))
@@ -181,6 +177,10 @@ export default function Reglements() {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setFiltreProvince(defaultFilter);
+  }, [defaultFilter]);
 
   const allRows = useMemo<ReglementRow[]>(
     () => [
@@ -362,7 +362,7 @@ export default function Reglements() {
   }, [currentPage, totalPages]);
 
   const handleProvinceChange = (value: string) => {
-    setFiltreProvince(value);
+    setFiltreProvince(guardFilter(value));
     setFiltreControleur("tous");
     setFiltreUo("tous");
   };
@@ -566,13 +566,19 @@ export default function Reglements() {
               className="h-11 border-gray-200 bg-white pl-10"
             />
           </div>
-          <Select value={filtreProvince} onValueChange={handleProvinceChange}>
+          <Select
+            value={filtreProvince}
+            onValueChange={handleProvinceChange}
+            disabled={!canSelectAll}
+          >
             <SelectTrigger className="h-11 border-gray-200 bg-white">
               <MapPin className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
               <SelectValue placeholder="Province" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="tous">Toutes les provinces</SelectItem>
+              {canSelectAll && (
+                <SelectItem value="tous">Toutes les provinces</SelectItem>
+              )}
               {provinces.map((p) => (
                 <SelectItem key={p.id} value={String(p.id)}>
                   {p.nom}

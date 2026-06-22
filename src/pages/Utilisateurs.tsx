@@ -52,10 +52,12 @@ import {
   type UserListItem,
 } from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
+import { useProvinceScope } from "@/hooks/useProvinceScope";
 
 export default function Utilisateurs() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { canSelectAll, filterProvinces, session } = useProvinceScope();
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
@@ -89,7 +91,7 @@ export default function Utilisateurs() {
     const load = async () => {
       await loadUsers();
       try {
-        setProvinces(await getProvinces());
+        setProvinces(filterProvinces(await getProvinces()));
       } catch {
         /* provinces optionnelles pour l'édition */
       }
@@ -449,7 +451,11 @@ export default function Utilisateurs() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-province">Province</Label>
-                <Select value={editProvince} onValueChange={setEditProvince}>
+                <Select
+                  value={editProvince}
+                  onValueChange={setEditProvince}
+                  disabled={!canSelectAll}
+                >
                   <SelectTrigger id="edit-province">
                     <SelectValue placeholder="Sélectionner une province" />
                   </SelectTrigger>

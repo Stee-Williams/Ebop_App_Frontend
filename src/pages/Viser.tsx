@@ -48,6 +48,7 @@ import {
   getBudgetConsultation,
   getEngagements,
   getUserSession,
+  resolveProvinceScope,
   updateEngagement,
   type EngagementItem,
 } from "@/config/app";
@@ -131,14 +132,19 @@ export default function VisaEngagements() {
     setLoading(true);
     try {
       const currentUser = (await ensureUserProvince()) ?? getUserSession();
-      const provinceId = currentUser?.province_id ?? null;
-      setProvinceNom(currentUser?.province_nom ?? null);
+      const { provinceId, provinceNom } = resolveProvinceScope(currentUser);
+      setProvinceNom(provinceNom);
 
       const [items, budgetData] = await Promise.all([
         getEngagements(),
         getBudgetConsultation(),
       ]);
-      setData(items.filter((item) => !isRegle(item.statut)));
+      setData(
+        filterByUserProvince(
+          items.filter((item) => !isRegle(item.statut)),
+          provinceId
+        )
+      );
 
       const budgets = filterByUserProvince(budgetData.budgets, provinceId);
       setBudgetDisponible(

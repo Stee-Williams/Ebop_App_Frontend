@@ -50,6 +50,7 @@ import {
   type ProvinceItem,
 } from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
+import { useProvinceScope } from "@/hooks/useProvinceScope";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 8;
@@ -85,11 +86,13 @@ const emptyForm = {
 
 export default function PostesComptables() {
   const { toast } = useToast();
+  const { canSelectAll, defaultFilter, filterProvinces, guardFilter, session } =
+    useProvinceScope();
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<PosteComptableItem[]>([]);
   const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [search, setSearch] = useState("");
-  const [filtreProvince, setFiltreProvince] = useState("tous");
+  const [filtreProvince, setFiltreProvince] = useState(defaultFilter);
   const [filtreType, setFiltreType] = useState("tous");
   const [currentPage, setCurrentPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
@@ -108,7 +111,7 @@ export default function PostesComptables() {
         getProvinces(),
       ]);
       setItems(postesData);
-      setProvinces(provincesData);
+      setProvinces(filterProvinces(provincesData));
     } catch (err) {
       toast({
         title: "Erreur",
@@ -124,6 +127,14 @@ export default function PostesComptables() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    setFiltreProvince(defaultFilter);
+  }, [defaultFilter]);
+
+  const handleProvinceChange = (value: string) => {
+    setFiltreProvince(guardFilter(value));
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -169,6 +180,12 @@ export default function PostesComptables() {
 
   const openCreate = () => {
     resetForm();
+    if (!canSelectAll && session?.province_id != null) {
+      setForm((prev) => ({
+        ...prev,
+        province_id: String(session.province_id),
+      }));
+    }
     setShowForm(true);
   };
 
@@ -292,12 +309,18 @@ export default function PostesComptables() {
               className="h-11 border-gray-200 bg-white pl-10"
             />
           </div>
-          <Select value={filtreProvince} onValueChange={setFiltreProvince}>
+          <Select
+            value={filtreProvince}
+            onValueChange={handleProvinceChange}
+            disabled={!canSelectAll}
+          >
             <SelectTrigger className="h-11 w-full max-w-xs border-gray-200 bg-white">
               <SelectValue placeholder="Province" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="tous">Toutes les provinces</SelectItem>
+              {canSelectAll && (
+                <SelectItem value="tous">Toutes les provinces</SelectItem>
+              )}
               {provinces.map((p) => (
                 <SelectItem key={p.id} value={String(p.id)}>
                   {p.nom}
@@ -477,12 +500,15 @@ export default function PostesComptables() {
                     province_id: value === "none" ? "" : value,
                   }))
                 }
+                disabled={!canSelectAll}
               >
                 <SelectTrigger id="pc-province">
                   <SelectValue placeholder="Sélectionner..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Non renseignée</SelectItem>
+                  {canSelectAll && (
+                    <SelectItem value="none">Non renseignée</SelectItem>
+                  )}
                   {provinces.map((p) => (
                     <SelectItem key={p.id} value={String(p.id)}>
                       {p.nom}

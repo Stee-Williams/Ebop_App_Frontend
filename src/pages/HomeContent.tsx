@@ -26,8 +26,7 @@ import {
   getBudgetConsultation,
   getEngagements,
   getUserSession,
-  isControleurBudgetaire,
-  isSuperAdmin,
+  resolveProvinceScope,
   type EngagementItem,
   type UserSession,
 } from "@/config/app";
@@ -124,17 +123,13 @@ function computeStats(
   budgetGlobal: number,
   provinceId: number | null,
   provinceNom: string | null,
-  restrictToProvince: boolean
+  scopedToProvince: boolean
 ) {
   const engagements = filterByUserProvince(allEngagements, provinceId);
 
   const actifs = engagements.filter((e) => e.statut === "En attente").length;
 
-  const reglementsMois = restrictToProvince
-    ? provinceId != null
-      ? filterReglementsDuMois(allEngagements, provinceId).length
-      : 0
-    : filterReglementsDuMois(allEngagements, provinceId).length;
+  const reglementsMois = filterReglementsDuMois(allEngagements, provinceId).length;
 
   const vises = engagements.filter((e) => e.statut === "Visé").length;
   const rejetes = engagements.filter((e) => e.statut === "Rejeté").length;
@@ -144,7 +139,7 @@ function computeStats(
 
   const provinceLabel = provinceNom
     ? `Province ${provinceNom}`
-    : restrictToProvince
+    : scopedToProvince
       ? "Province non renseignée"
       : "Toutes provinces";
 
@@ -192,19 +187,9 @@ const HomeContent = () => {
       const currentUser = (await ensureUserProvince()) ?? getUserSession();
       setUser(currentUser);
 
-      const superAdmin = currentUser
-        ? isSuperAdmin(currentUser.role)
-        : false;
-      const provinceId = superAdmin
-        ? null
-        : (currentUser?.province_id ?? null);
-      const provinceNom = superAdmin
-        ? null
-        : (currentUser?.province_nom ?? null);
-      const restrictToProvince =
-        currentUser != null &&
-        isControleurBudgetaire(currentUser.role) &&
-        !superAdmin;
+      const { provinceId, provinceNom, canSelectAll } =
+        resolveProvinceScope(currentUser);
+      const scopedToProvince = !canSelectAll;
 
       try {
         const [engagementsData, budgetData] = await Promise.all([
@@ -225,12 +210,12 @@ const HomeContent = () => {
             budgetGlobal,
             provinceId,
             provinceNom,
-            restrictToProvince
+            scopedToProvince
           )
         );
       } catch {
         setStats(
-          computeStats([], 0, provinceId, provinceNom, restrictToProvince)
+          computeStats([], 0, provinceId, provinceNom, scopedToProvince)
         );
       }
     };

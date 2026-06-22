@@ -54,6 +54,7 @@ import {
   type ProvinceItem,
 } from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
+import { useProvinceScope } from "@/hooks/useProvinceScope";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 6;
@@ -122,11 +123,18 @@ function buildUnitesPayload(unites: UniteDraft[]): CreateAdministrationUnitePayl
 
 export default function Administrations() {
   const { toast } = useToast();
+  const {
+    session,
+    canSelectAll,
+    defaultFilter,
+    filterProvinces,
+    guardFilter,
+  } = useProvinceScope();
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<AdministrationItem[]>([]);
   const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [search, setSearch] = useState("");
-  const [filtreProvince, setFiltreProvince] = useState("tous");
+  const [filtreProvince, setFiltreProvince] = useState(defaultFilter);
   const [currentPage, setCurrentPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<AdministrationItem | null>(null);
@@ -148,7 +156,7 @@ export default function Administrations() {
         getProvinces(),
       ]);
       setItems(administrationsData);
-      setProvinces(provincesData);
+      setProvinces(filterProvinces(provincesData));
     } catch (err) {
       toast({
         title: "Erreur",
@@ -164,6 +172,14 @@ export default function Administrations() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    setFiltreProvince(defaultFilter);
+  }, [defaultFilter]);
+
+  const handleProvinceChange = (value: string) => {
+    setFiltreProvince(guardFilter(value));
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -198,6 +214,12 @@ export default function Administrations() {
   const openCreate = () => {
     setEditing(null);
     resetFormState();
+    if (!canSelectAll && session?.province_id != null) {
+      setForm((prev) => ({
+        ...prev,
+        province_id: String(session.province_id),
+      }));
+    }
     setShowForm(true);
   };
 
@@ -528,13 +550,19 @@ export default function Administrations() {
               className="h-11 border-gray-200 bg-white pl-10"
             />
           </div>
-          <Select value={filtreProvince} onValueChange={setFiltreProvince}>
+          <Select
+            value={filtreProvince}
+            onValueChange={handleProvinceChange}
+            disabled={!canSelectAll}
+          >
             <SelectTrigger className="h-11 w-full max-w-xs border-gray-200 bg-white">
               <MapPin className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
               <SelectValue placeholder="Province" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="tous">Toutes les provinces</SelectItem>
+              {canSelectAll && (
+                <SelectItem value="tous">Toutes les provinces</SelectItem>
+              )}
               {provinces.map((p) => (
                 <SelectItem key={p.id} value={String(p.id)}>
                   {p.nom}
@@ -667,12 +695,13 @@ export default function Administrations() {
                       province_id: v === "none" ? "" : v,
                     }))
                   }
+                  disabled={!canSelectAll}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Choisir une province" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Aucune</SelectItem>
+                    {canSelectAll && <SelectItem value="none">Aucune</SelectItem>}
                     {provinces.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         {p.nom}

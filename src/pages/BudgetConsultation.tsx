@@ -52,6 +52,7 @@ import {
   type UniteOperationnelleItem,
 } from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
+import { useProvinceScope } from "@/hooks/useProvinceScope";
 import { cn, computeTauxUtilisation, formatTauxPercent } from "@/lib/utils";
 
 const PAGE_SIZE = 6;
@@ -77,6 +78,8 @@ function getTauxBadge(taux: number): string {
 
 export default function BudgetConsultation() {
   const { toast } = useToast();
+  const { canSelectAll, defaultFilter, filterProvinces, guardFilter } =
+    useProvinceScope();
   const [loading, setLoading] = useState(true);
   const [budgets, setBudgets] = useState<BudgetItem[]>([]);
   const [lignes, setLignes] = useState<LigneBudgetaireItem[]>([]);
@@ -95,7 +98,7 @@ export default function BudgetConsultation() {
     nombre_budgets: 0,
   });
   const [search, setSearch] = useState("");
-  const [filtreProvince, setFiltreProvince] = useState("tous");
+  const [filtreProvince, setFiltreProvince] = useState(defaultFilter);
   const [filtreAdministration, setFiltreAdministration] = useState("tous");
   const [filtreUo, setFiltreUo] = useState("tous");
   const [filtreLigne, setFiltreLigne] = useState("tous");
@@ -117,7 +120,7 @@ export default function BudgetConsultation() {
         setBudgets(data.budgets);
         setLignes(data.lignes);
         setStats(data.stats);
-        setProvinces(provincesData);
+        setProvinces(filterProvinces(provincesData));
         setAdministrations(administrationsData);
         setUnites(unitesData);
       } catch {
@@ -132,6 +135,10 @@ export default function BudgetConsultation() {
     };
     load();
   }, [toast]);
+
+  useEffect(() => {
+    setFiltreProvince(defaultFilter);
+  }, [defaultFilter]);
 
   const annees = useMemo(
     () => [...new Set(budgets.map((b) => b.annee))].sort((a, b) => b - a),
@@ -327,7 +334,8 @@ export default function BudgetConsultation() {
     search.trim() !== "";
 
   const handleProvinceChange = (value: string) => {
-    setFiltreProvince(value);
+    const next = guardFilter(value);
+    setFiltreProvince(next);
     setFiltreAdministration("tous");
     setFiltreUo("tous");
     setFiltreLigne("tous");
@@ -457,7 +465,11 @@ export default function BudgetConsultation() {
                 <p className="mb-1 text-[11px] font-medium text-muted-foreground">
                   Province
                 </p>
-                <Select value={filtreProvince} onValueChange={handleProvinceChange}>
+                <Select
+                  value={filtreProvince}
+                  onValueChange={handleProvinceChange}
+                  disabled={!canSelectAll}
+                >
                   <SelectTrigger
                     className="h-10 min-w-0 border-gray-200 bg-white [&>span]:min-w-0 [&>span]:truncate"
                     title={
@@ -471,7 +483,7 @@ export default function BudgetConsultation() {
                     <SelectValue placeholder="Toutes" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="tous">Toutes</SelectItem>
+                    {canSelectAll && <SelectItem value="tous">Toutes</SelectItem>}
                     {provinces.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         {p.nom}

@@ -107,11 +107,57 @@ export {
   getDefaultHomeRoute,
   getNavItemsForRole,
   isSuperAdmin,
+  canAccessAllProvinces,
   normalizeAppRole,
 } from "@/config/permissions";
 
 export function isControleurBudgetaire(role: string): boolean {
   return normalizeAppRole(role) === "controleur_budgetaire";
+}
+
+export function canSelectAllProvinces(role: string): boolean {
+  return canAccessAllProvinces(role);
+}
+
+export function getDefaultProvinceFilter(session: UserSession | null): string {
+  if (!session) return "tous";
+  if (canSelectAllProvinces(session.role)) return "tous";
+  return session.province_id != null ? String(session.province_id) : "tous";
+}
+
+export function resolveProvinceScope(session: UserSession | null): {
+  provinceId: number | null;
+  provinceNom: string | null;
+  canSelectAll: boolean;
+  defaultFilter: string;
+} {
+  const canSelectAll = session ? canSelectAllProvinces(session.role) : false;
+
+  return {
+    provinceId: canSelectAll ? null : (session?.province_id ?? null),
+    provinceNom: canSelectAll ? null : (session?.province_nom ?? null),
+    canSelectAll,
+    defaultFilter: getDefaultProvinceFilter(session),
+  };
+}
+
+export function filterProvincesForUser(
+  provinces: ProvinceItem[],
+  session: UserSession | null
+): ProvinceItem[] {
+  if (!session || canSelectAllProvinces(session.role)) return provinces;
+  if (session.province_id == null) return [];
+  return provinces.filter((p) => p.id === session.province_id);
+}
+
+export function guardProvinceFilter(
+  value: string,
+  session: UserSession | null
+): string {
+  if (session && !canSelectAllProvinces(session.role) && session.province_id != null) {
+    return String(session.province_id);
+  }
+  return value;
 }
 
 export function filterByUserProvince<T extends { province_id: number | null }>(

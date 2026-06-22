@@ -58,6 +58,7 @@ import {
   exportEngagementsPdf,
 } from "@/lib/exportEngagementsPdf";
 import { useToast } from "@/hooks/use-toast";
+import { useProvinceScope } from "@/hooks/useProvinceScope";
 
 const statusClass: Record<string, string> = {
   Visé: "bg-emerald-100 text-emerald-800 hover:bg-emerald-100",
@@ -80,6 +81,8 @@ const fmtDate = (d: string) => {
 
 export default function AutresEngagements() {
   const { toast } = useToast();
+  const { canSelectAll, defaultFilter, filterProvinces, guardFilter } =
+    useProvinceScope();
   const user = getUserSession();
   const [loading, setLoading] = useState(true);
   const [engagements, setEngagements] = useState<EngagementItem[]>([]);
@@ -91,9 +94,7 @@ export default function AutresEngagements() {
   const [controleurs, setControleurs] = useState<UserListItem[]>([]);
 
   const [search, setSearch] = useState("");
-  const [filtreProvince, setFiltreProvince] = useState(
-    user?.province_id ? String(user.province_id) : "tous"
-  );
+  const [filtreProvince, setFiltreProvince] = useState(defaultFilter);
   const [filtreAdministration, setFiltreAdministration] = useState("tous");
   const [filtreUo, setFiltreUo] = useState("tous");
   const [filtreDate, setFiltreDate] = useState("");
@@ -163,7 +164,7 @@ export default function AutresEngagements() {
           getUsers(),
         ]);
         setEngagements(engagementsData);
-        setProvinces(provincesData);
+        setProvinces(filterProvinces(provincesData));
         setAdministrations(administrationsData);
         setUnites(unitesData);
         setControleurs(
@@ -183,6 +184,10 @@ export default function AutresEngagements() {
     };
     load();
   }, [toast]);
+
+  useEffect(() => {
+    setFiltreProvince(defaultFilter);
+  }, [defaultFilter]);
 
   const administrationOptions = useMemo(
     () =>
@@ -312,7 +317,7 @@ export default function AutresEngagements() {
   }, [currentPage, totalPages]);
 
   const handleProvinceChange = (value: string) => {
-    setFiltreProvince(value);
+    setFiltreProvince(guardFilter(value));
     setFiltreAdministration("tous");
     setFiltreUo("tous");
     setFiltreControleur("tous");
@@ -325,7 +330,7 @@ export default function AutresEngagements() {
 
   const resetFilters = () => {
     setSearch("");
-    setFiltreProvince(user?.province_id ? String(user.province_id) : "tous");
+    setFiltreProvince(defaultFilter);
     setFiltreAdministration("tous");
     setFiltreUo("tous");
     setFiltreDate("");
@@ -364,13 +369,19 @@ export default function AutresEngagements() {
               />
             </div>
 
-            <Select value={filtreProvince} onValueChange={handleProvinceChange}>
+            <Select
+              value={filtreProvince}
+              onValueChange={handleProvinceChange}
+              disabled={!canSelectAll}
+            >
               <SelectTrigger className="h-11 border-gray-200 bg-white">
                 <MapPin className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
                 <SelectValue placeholder="Province" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="tous">Toutes les provinces</SelectItem>
+                {canSelectAll && (
+                  <SelectItem value="tous">Toutes les provinces</SelectItem>
+                )}
                 {provinces.map((p) => (
                   <SelectItem key={p.id} value={String(p.id)}>
                     {p.nom}

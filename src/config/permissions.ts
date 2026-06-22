@@ -75,6 +75,19 @@ export function isSuperAdmin(role: string): boolean {
   return normalizeAppRole(role) === "super_admin";
 }
 
+/** Accès à toutes les provinces (hors filtrage provincial). */
+export function canAccessAllProvinces(role: string): boolean {
+  const appRole = normalizeAppRole(role);
+  if (!appRole) return false;
+  return (
+    appRole === "super_admin" ||
+    appRole === "tresorier" ||
+    appRole === "controleur_budgetaire_principal" ||
+    appRole === "dba" ||
+    appRole === "informaticien"
+  );
+}
+
 function isDashboardPath(pathname: string): boolean {
   return pathname === "/acceuil" || pathname === "/acceuil/";
 }

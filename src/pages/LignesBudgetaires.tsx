@@ -59,6 +59,7 @@ import {
   type ProvinceItem,
 } from "@/config/app";
 import { useToast } from "@/hooks/use-toast";
+import { useProvinceScope } from "@/hooks/useProvinceScope";
 import { getPaginationRange } from "@/lib/pagination";
 import { cn } from "@/lib/utils";
 
@@ -80,13 +81,15 @@ const emptyForm = {
 
 export default function LignesBudgetaires() {
   const { toast } = useToast();
+  const { canSelectAll, defaultFilter, filterProvinces, guardFilter } =
+    useProvinceScope();
   const [loading, setLoading] = useState(true);
   const [lignes, setLignes] = useState<LigneBudgetaireListItem[]>([]);
   const [budgets, setBudgets] = useState<BudgetListItem[]>([]);
   const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [administrations, setAdministrations] = useState<AdministrationItem[]>([]);
   const [search, setSearch] = useState("");
-  const [filtreProvince, setFiltreProvince] = useState("tous");
+  const [filtreProvince, setFiltreProvince] = useState(defaultFilter);
   const [filtreAdministration, setFiltreAdministration] = useState("tous");
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -110,7 +113,7 @@ export default function LignesBudgetaires() {
         ]);
       setLignes(lignesData);
       setBudgets(budgetsData);
-      setProvinces(provincesData);
+      setProvinces(filterProvinces(provincesData));
       setAdministrations(administrationsData);
     } catch {
       toast({
@@ -127,6 +130,10 @@ export default function LignesBudgetaires() {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setFiltreProvince(defaultFilter);
+  }, [defaultFilter]);
 
   const administrationOptions = useMemo(
     () =>
@@ -170,7 +177,7 @@ export default function LignesBudgetaires() {
   }, [lignes, search, filtreProvince, filtreAdministration]);
 
   const handleProvinceChange = (value: string) => {
-    setFiltreProvince(value);
+    setFiltreProvince(guardFilter(value));
     setFiltreAdministration("tous");
   };
 
@@ -347,13 +354,19 @@ export default function LignesBudgetaires() {
               className="h-11 border-gray-200 bg-white pl-10"
             />
           </div>
-          <Select value={filtreProvince} onValueChange={handleProvinceChange}>
+          <Select
+            value={filtreProvince}
+            onValueChange={handleProvinceChange}
+            disabled={!canSelectAll}
+          >
             <SelectTrigger className="h-11 border-gray-200 bg-white">
               <MapPin className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
               <SelectValue placeholder="Province" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="tous">Toutes les provinces</SelectItem>
+              {canSelectAll && (
+                <SelectItem value="tous">Toutes les provinces</SelectItem>
+              )}
               {provinces.map((p) => (
                 <SelectItem key={p.id} value={String(p.id)}>
                   {p.nom}
